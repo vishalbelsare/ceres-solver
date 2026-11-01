@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2018 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,38 +31,26 @@
 #ifndef CERES_PUBLIC_INTERNAL_PARAMETER_DIMS_H_
 #define CERES_PUBLIC_INTERNAL_PARAMETER_DIMS_H_
 
+// IWYU pragma: private
+
 #include <array>
 #include <utility>
 
+#include "Eigen/Core"
 #include "ceres/internal/integer_sequence_algorithm.h"
 
-namespace ceres {
-namespace internal {
-
-// Checks, whether the given parameter block sizes are valid. Valid means every
-// dimension is bigger than zero.
-constexpr bool IsValidParameterDimensionSequence(std::integer_sequence<int>) {
-  return true;
-}
-
-template <int N, int... Ts>
-constexpr bool IsValidParameterDimensionSequence(
-    std::integer_sequence<int, N, Ts...>) {
-  return (N <= 0) ? false
-                  : IsValidParameterDimensionSequence(
-                        std::integer_sequence<int, Ts...>());
-}
+namespace ceres::internal {
 
 // Helper class that represents the parameter dimensions. The parameter
 // dimensions are either dynamic or the sizes are known at compile time. It is
 // used to pass parameter block dimensions around (e.g. between functions or
 // classes).
 //
-// As an example if one have three parameter blocks with dimensions (2, 4, 1),
+// As an example if one has three parameter blocks with dimensions (2, 4, 1),
 // one would use 'StaticParameterDims<2, 4, 1>' which is a synonym for
 // 'ParameterDims<false, 2, 4, 1>'.
-// For dynamic parameter dims, one would just use 'DynamicParameterDims', which
-// is a synonym for 'ParameterDims<true>'.
+// For dynamic parameter dimensions, one would just use 'DynamicParameterDims',
+// which is a synonym for 'ParameterDims<true>'.
 template <bool IsDynamic, int... Ns>
 class ParameterDims {
  public:
@@ -70,47 +58,38 @@ class ParameterDims {
 
   // The parameter dimensions are only valid if all parameter block dimensions
   // are greater than zero.
-  static constexpr bool kIsValid =
-      IsValidParameterDimensionSequence(Parameters());
+  static constexpr bool kIsValid = ((Ns > 0) && ...);
   static_assert(kIsValid,
                 "Invalid parameter block dimension detected. Each parameter "
-                "block dimension must be bigger than zero.");
+                "block dimension must be greater than zero.");
 
   static constexpr bool kIsDynamic = IsDynamic;
   static constexpr int kNumParameterBlocks = sizeof...(Ns);
   static_assert(kIsDynamic || kNumParameterBlocks > 0,
                 "At least one parameter block must be specified.");
 
-  static constexpr int kNumParameters =
-      Sum<std::integer_sequence<int, Ns...>>::Value;
+  static constexpr int kNumParameters = (Ns + ... + 0);
 
   static constexpr int GetDim(int dim) { return params_[dim]; }
 
-  // If one has all parameters packed into a single array this function unpacks
-  // the parameters.
+  // If one has all parameters packed into a single array, this function unpacks
+  // the parameters into an array of pointers.
   template <typename T>
-  static inline std::array<T*, kNumParameterBlocks> GetUnpackedParameters(
-      T* ptr) {
+  static constexpr EIGEN_STRONG_INLINE std::array<T*, kNumParameterBlocks>
+  GetUnpackedParameters(T* ptr) {
     using Offsets = ExclusiveScan<Parameters>;
     return GetUnpackedParameters(ptr, Offsets());
   }
 
  private:
   template <typename T, int... Indices>
-  static inline std::array<T*, kNumParameterBlocks> GetUnpackedParameters(
-      T* ptr, std::integer_sequence<int, Indices...>) {
+  static constexpr EIGEN_STRONG_INLINE std::array<T*, kNumParameterBlocks>
+  GetUnpackedParameters(T* ptr, std::integer_sequence<int, Indices...>) {
     return std::array<T*, kNumParameterBlocks>{{ptr + Indices...}};
   }
 
-  static constexpr std::array<int, kNumParameterBlocks> params_{Ns...};
+  static constexpr inline std::array<int, kNumParameterBlocks> params_{Ns...};
 };
-
-// Even static constexpr member variables needs to be defined (not only
-// declared). As the ParameterDims class is tempalted this definition must
-// be in the header file.
-template <bool IsDynamic, int... Ns>
-constexpr std::array<int, ParameterDims<IsDynamic, Ns...>::kNumParameterBlocks>
-    ParameterDims<IsDynamic, Ns...>::params_;
 
 // Using declarations for static and dynamic parameter dims. This makes client
 // code easier to read.
@@ -118,7 +97,6 @@ template <int... Ns>
 using StaticParameterDims = ParameterDims<false, Ns...>;
 using DynamicParameterDims = ParameterDims<true>;
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #endif  // CERES_PUBLIC_INTERNAL_PARAMETER_DIMS_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,23 +33,19 @@
 #define CERES_PUBLIC_SPHERE_MANIFOLD_H_
 
 #include <Eigen/Core>
-#include <algorithm>
-#include <array>
-#include <memory>
-#include <vector>
 
+#include "absl/log/check.h"
 #include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/export.h"
 #include "ceres/internal/householder_vector.h"
 #include "ceres/internal/sphere_manifold_functions.h"
 #include "ceres/manifold.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
 namespace ceres {
 
 // This provides a manifold on a sphere meaning that the norm of the vector
-// stays the same. Such cases often arises in Structure for Motion
+// stays the same. Such cases often arise in Structure from Motion
 // problems. One example where they are used is in representing points whose
 // triangulation is ill-conditioned. Here it is advantageous to use an
 // over-parameterization since homogeneous vectors can represent points at
@@ -68,11 +64,11 @@ namespace ceres {
 // than 1.
 //
 // The class works with dynamic and static ambient space dimensions. If the
-// ambient space dimensions is known at compile time use
+// ambient space dimension is known at compile time use
 //
 //    SphereManifold<3> manifold;
 //
-// If the ambient space dimensions is not known at compile time the template
+// If the ambient space dimension is not known at compile time the template
 // parameter needs to be set to ceres::DYNAMIC and the actual dimension needs
 // to be provided as a constructor argument:
 //
@@ -114,12 +110,17 @@ class SphereManifold final : public Manifold {
   static constexpr int TangentSpaceDimension =
       AmbientSpaceDimension > 0 ? AmbientSpaceDimension - 1 : Eigen::Dynamic;
 
+  // NOTE: Eigen does not allow to have a RowMajor column vector.
+  // In that case, change the storage order
+  static constexpr int SafeRowMajor =
+      TangentSpaceDimension == 1 ? Eigen::ColMajor : Eigen::RowMajor;
+
   using AmbientVector = Eigen::Matrix<double, AmbientSpaceDimension, 1>;
   using TangentVector = Eigen::Matrix<double, TangentSpaceDimension, 1>;
   using MatrixPlusJacobian = Eigen::Matrix<double,
                                            AmbientSpaceDimension,
                                            TangentSpaceDimension,
-                                           Eigen::RowMajor>;
+                                           SafeRowMajor>;
   using MatrixMinusJacobian = Eigen::Matrix<double,
                                             TangentSpaceDimension,
                                             AmbientSpaceDimension,
@@ -198,7 +199,7 @@ bool SphereManifold<AmbientSpaceDimension>::Minus(const double* y_ptr,
   Eigen::Map<const AmbientVector> x(x_ptr, size_);
   Eigen::Map<TangentVector> y_minus_x(y_minus_x_ptr, size_ - 1);
 
-  // Apply hoseholder transformation.
+  // Apply Householder transformation.
   AmbientVector v(size_);
   double beta;
 

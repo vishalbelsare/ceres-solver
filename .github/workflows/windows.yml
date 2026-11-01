@@ -1,0 +1,261 @@
+name: Windows
+
+on: [push, pull_request]
+
+jobs:
+  build-mingw:
+    name: ${{matrix.sys}}-${{matrix.env}}-${{matrix.build_type}}-${{matrix.lib}}
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      CCACHE_DIR: ${{github.workspace}}/ccache
+    strategy:
+      fail-fast: true
+      matrix:
+        build_type: [Release]
+        sys: [ucrt64]
+        lib: [shared, static]
+        include:
+          - sys: ucrt64
+            env: ucrt-x86_64
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Dependencies
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{matrix.sys}}
+        install: >-
+          mingw-w64-${{matrix.env}}-ccache
+          mingw-w64-${{matrix.env}}-cmake
+          mingw-w64-${{matrix.env}}-eigen3
+          mingw-w64-${{matrix.env}}-gcc
+          ${{matrix.sys == 'ucrt64' && format('mingw-w64-{0}-metis', matrix.env) || ''}}
+          mingw-w64-${{matrix.env}}-ninja
+          mingw-w64-${{matrix.env}}-suitesparse
+
+    - name: Cache Build
+      id: cache-build
+      uses: actions/cache@v4
+      with:
+        path: ${{env.CCACHE_DIR}}
+        key: ${{runner.os}}-${{matrix.sys}}-${{matrix.env}}-${{matrix.build_type}}-${{matrix.lib}}-ccache-${{github.run_id}}
+        restore-keys: ${{runner.os}}-${{matrix.sys}}-${{matrix.env}}-${{matrix.build_type}}-${{matrix.lib}}-ccache-
+
+    - name: Configure
+      run: |
+        cmake -S . -B build_${{matrix.build_type}}/ \
+              -DBUILD_SHARED_LIBS=${{matrix.lib == 'shared'}} \
+              -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+              -DCMAKE_C_COMPILER_LAUNCHER:FILEPATH=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER:FILEPATH=ccache \
+              -DWITH_SUITESPARSE=ON \
+              -G Ninja
+
+    - name: Build
+      run: |
+        cmake --build build_${{matrix.build_type}}/ \
+              --config ${{matrix.build_type}}
+
+    - name: Test
+      run: |
+        cd build_${{matrix.build_type}}/
+        ctest --build-config ${{matrix.build_type}} \
+              --output-on-failure \
+              -j$(nproc)
+
+    - name: Install
+      run: |
+        cmake --build build_${{matrix.build_type}}/ \
+              --config ${{matrix.build_type}} \
+              --target install
+
+  build-msvc:
+    name: ${{matrix.msvc}}-${{matrix.arch}}-${{matrix.build_type}}-${{matrix.lib}}-${{matrix.gpu}}
+    runs-on: ${{matrix.os}}
+    defaults:
+      run:
+        shell: powershell
+    env:
+      CCACHE_DIR: ${{github.workspace}}/ccache
+      CMAKE_GENERATOR: ${{matrix.generator}}
+      CMAKE_GENERATOR_PLATFORM: ${{matrix.arch}}
+    strategy:
+      fail-fast: true
+      matrix:
+        arch:
+          - x64
+        build_type:
+          - Release
+        msvc:
+          - VS-18-2026
+        lib:
+          - shared
+        gpu:
+          - cuda
+          - no-cuda
+        include:
+          - msvc: VS-18-2026
+            os: windows-2025-vs2026
+            generator: 'Visual Studio 18 2026'
+            marker: vc18
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache CUDA toolkit
+        if: matrix.gpu == 'cuda'
+        id: cache-cuda
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3
+            C:/Program Files/Microsoft Visual Studio/18/Enterprise/MSBuild/Microsoft/VC/v180/BuildCustomizations
+          key: ${{runner.os}}-${{matrix.msvc}}-cuda-13.3.0-v1
+
+      - name: Download and install CUDA toolkit
+        if: matrix.gpu == 'cuda' && steps.cache-cuda.outputs.cache-hit != 'true'
+        run: |
+          Invoke-WebRequest https://developer.download.nvidia.com/compute/cuda/13.3.0/network_installers/cuda_13.3.0_windows_network.exe -OutFile cuda_toolkit_windows.exe
+          Start-Process -Wait -FilePath .\cuda_toolkit_windows.exe -ArgumentList "-s crt_13.3 cusolver_dev_13.3 cusparse_dev_13.3 cublas_dev_13.3 thrust_13.3 nvcc_13.3 nvvm_13.3 cudart_13.3 nvrtc_dev_13.3 visual_studio_integration_13.3"
+          Remove-Item .\cuda_toolkit_windows.exe
+
+      - name: Setup CUDA environment
+        if: matrix.gpu == 'cuda'
+        run: |
+          $CUDA_PATH = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3"
+          echo "CUDA_PATH=$CUDA_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "CUDA_PATH_V13_3=$CUDA_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$CUDA_PATH/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Cache cuDSS
+        if: matrix.gpu == 'cuda'
+        id: cache-cudss
+        uses: actions/cache@v4
+        with:
+          path: ${{github.workspace}}/libcudss-windows-x86_64-0.8.0.10_cuda13-archive
+          key: ${{runner.os}}-${{matrix.msvc}}-cudss-0.8.0.10-cuda13-v1
+
+      - name: Download and extract cuDSS
+        if: matrix.gpu == 'cuda' && steps.cache-cudss.outputs.cache-hit != 'true'
+        run: |
+          $CUDSS_ARCHIVE = "${{github.workspace}}/libcudss-windows-x86_64-0.8.0.10_cuda13-archive.zip"
+          Invoke-WebRequest https://developer.download.nvidia.com/compute/cudss/redist/libcudss/windows-x86_64/libcudss-windows-x86_64-0.8.0.10_cuda13-archive.zip -OutFile $CUDSS_ARCHIVE
+          Expand-Archive -Path $CUDSS_ARCHIVE -DestinationPath "${{github.workspace}}"
+          Remove-Item $CUDSS_ARCHIVE
+
+      - name: Setup cuDSS environment
+        if: matrix.gpu == 'cuda'
+        run: |
+          $CUDSS_PATH = "${{github.workspace}}/libcudss-windows-x86_64-0.8.0.10_cuda13-archive/"
+          echo "cudss_DIR=$CUDSS_PATH/lib/cmake/cudss" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$CUDSS_PATH/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Cache SuiteSparse
+        id: cache-suitesparse
+        uses: actions/cache@v4
+        with:
+          path: suitesparse/
+          key: ${{matrix.msvc}}-suitesparse-5.13.0-cmake.5-${{matrix.arch}}-${{matrix.build_type}}-${{matrix.lib}}
+
+      - name: Download SuiteSparse
+        if: steps.cache-suitesparse.outputs.cache-hit != 'true'
+        run: |
+          (New-Object System.Net.WebClient).DownloadFile("https://github.com/sergiud/SuiteSparse/releases/download/5.13.0-cmake.5/SuiteSparse-5.13.0-cmake.5-${{matrix.marker}}-Win64-${{matrix.build_type}}-${{matrix.lib}}-gpl-metis.zip", "suitesparse.zip");
+          Expand-Archive -Path suitesparse.zip -DestinationPath ${{github.workspace}}/suitesparse;
+
+      - name: Cache Eigen
+        id: cache-eigen
+        uses: actions/cache@v4
+        with:
+          path: eigen/
+          key: ${{runner.os}}-eigen-3.4.0
+
+      - name: Download Eigen
+        if: steps.cache-eigen.outputs.cache-hit != 'true'
+        run: |
+          (New-Object System.Net.WebClient).DownloadFile("https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.zip", "eigen-3.4.0.zip");
+          Expand-Archive -Path eigen-3.4.0.zip -DestinationPath .;
+
+      - name: Setup Eigen
+        if: steps.cache-eigen.outputs.cache-hit != 'true'
+        run: |
+          cmake -S eigen-3.4.0 -B build-eigen `
+                -DBUILD_TESTING=OFF `
+                -DCMAKE_Fortran_COMPILER= `
+                -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/eigen `
+                -DEIGEN_BUILD_DOC=OFF
+          cmake --build build-eigen `
+                --config ${{matrix.build_type}} `
+                --target install
+
+      - name: Setup Build Environment
+        run: |
+          echo "Eigen3_ROOT=${{github.workspace}}/eigen" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "CMAKE_PREFIX_PATH=${{github.workspace}}/suitesparse" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Setup Runtime Environment
+        run: |
+          echo '${{github.workspace}}\suitesparse\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Cache ccache binary
+        id: cache-ccache-bin
+        uses: actions/cache@v4
+        with:
+          path: ccache-4.10.2-windows-x86_64/
+          key: ${{runner.os}}-ccache-bin-4.10.2
+
+      - name: Download ccache
+        if: steps.cache-ccache-bin.outputs.cache-hit != 'true'
+        run: |
+          Invoke-WebRequest https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-windows-x86_64.zip -OutFile ccache.zip
+          Expand-Archive -Path ccache.zip -DestinationPath .
+          Copy-Item ccache-4.10.2-windows-x86_64/ccache.exe ccache-4.10.2-windows-x86_64/cl.exe
+          Remove-Item ccache.zip
+
+      - name: Cache Build
+        id: cache-build
+        uses: actions/cache@v4
+        with:
+          path: ${{env.CCACHE_DIR}}
+          key: ${{runner.os}}-${{matrix.msvc}}-${{matrix.arch}}-${{matrix.build_type}}-${{matrix.lib}}-${{matrix.gpu}}-ccache-${{github.run_id}}
+          restore-keys: ${{runner.os}}-${{matrix.msvc}}-${{matrix.arch}}-${{matrix.build_type}}-${{matrix.lib}}-${{matrix.gpu}}-ccache-
+
+      - name: Configure
+        run: |
+          cmake -S . -B build_${{matrix.build_type}}/ `
+                -DBLAS_blas_LIBRARY=${{github.workspace}}/suitesparse/lib/libblas.lib `
+                -DBUILD_SHARED_LIBS=${{matrix.lib == 'shared'}} `
+                -DCMAKE_CONFIGURATION_TYPES=${{matrix.build_type}} `
+                -DCMAKE_INSTALL_PREFIX:PATH=${{github.workspace}}/install `
+                "-DCMAKE_VS_GLOBALS=CLToolExe=cl.exe;CLToolPath=${{github.workspace}}\ccache-4.10.2-windows-x86_64;TrackFileAccess=false;UseMultiToolTask=true;DebugInformationFormat=OldStyle" `
+                -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
+                -DLAPACK_lapack_LIBRARY=${{github.workspace}}/suitesparse/lib/liblapack.lib `
+                -DWITH_SUITESPARSE=ON
+
+      - name: Build
+        run: |
+          cmake --build build_${{matrix.build_type}}/ `
+                --config ${{matrix.build_type}}
+
+      - name: Test
+        if: matrix.gpu == 'no-cuda'
+        env:
+          CTEST_OUTPUT_ON_FAILURE: 1
+        run: |
+          cmake --build build_${{matrix.build_type}}/ `
+                --config ${{matrix.build_type}} `
+                --target RUN_TESTS
+
+      - name: Install
+        run: |
+          cmake --build build_${{matrix.build_type}}/ `
+                --config ${{matrix.build_type}} `
+                --target INSTALL

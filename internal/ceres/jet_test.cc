@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2026 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,14 +28,6 @@
 //
 // Author: keir@google.com (Keir Mierle)
 
-// The floating-point environment access and modification is only meaningful
-// with the following pragma.
-#ifdef _MSC_VER
-#pragma fenv_access(on)
-#else
-#pragma STDC FENV_ACCESS ON
-#endif
-
 #include "ceres/jet.h"
 
 #include <Eigen/Dense>
@@ -43,14 +35,24 @@
 #include <cfenv>
 #include <cmath>
 
-#include "ceres/stringprintf.h"
+#include "absl/log/log.h"
 #include "ceres/test_util.h"
-#include "glog/logging.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+// The floating-point environment access and modification is only meaningful
+// with the following pragma.
+#ifdef _MSC_VER
+#pragma float_control(precise, on, push)
+#pragma fenv_access(on)
+#elif !(defined(__ARM_ARCH) && __ARM_ARCH >= 8) && !defined(__MINGW32__)
+// NOTE: FENV_ACCESS cannot be set to ON when targeting arm(v8) and MinGW
+#pragma STDC FENV_ACCESS ON
+#else
+#define CERES_NO_FENV_ACCESS
+#endif
+
+namespace ceres::internal {
 
 namespace {
 
@@ -72,7 +74,7 @@ J MakeJet(double a, double v0, double v1) {
   return z;
 }
 
-double const kTolerance = 1e-13;
+constexpr double kTolerance = 1e-13;
 
 // Stores the floating-point environment containing active floating-point
 // exceptions, rounding mode, etc., and restores it upon destruction.
@@ -101,25 +103,36 @@ bool AreAlmostEqual(double x, double y, double max_abs_relative_difference) {
 
   Fenv env;  // Do not leak floating-point exceptions to the caller
   double absolute_difference = std::abs(x - y);
-  double relative_difference =
-      absolute_difference / std::max(std::abs(x), std::abs(y));
+  double relative_difference;
 
   if (std::fpclassify(x) == FP_ZERO || std::fpclassify(y) == FP_ZERO) {
     // If x or y is exactly zero, then relative difference doesn't have any
     // meaning. Take the absolute difference instead.
     relative_difference = absolute_difference;
+  } else {
+    relative_difference =
+        absolute_difference / std::max(std::abs(x), std::abs(y));
   }
   return std::islessequal(relative_difference, max_abs_relative_difference);
 }
 
-MATCHER_P(IsAlmostEqualTo, y, "") {
-  const bool result = (AreAlmostEqual(arg.a, y.a, kTolerance) &&
-                       AreAlmostEqual(arg.v[0], y.v[0], kTolerance) &&
-                       AreAlmostEqual(arg.v[1], y.v[1], kTolerance));
+MATCHER_P2(IsAlmostEqualToWithTolerance,
+           y,
+           tolerance,
+           "is almost equal to " + testing::PrintToString(y) +
+               " with tolerance " + testing::PrintToString(tolerance)) {
+  const bool result = (AreAlmostEqual(arg.a, y.a, tolerance) &&
+                       AreAlmostEqual(arg.v[0], y.v[0], tolerance) &&
+                       AreAlmostEqual(arg.v[1], y.v[1], tolerance));
   if (!result) {
     *result_listener << "\nexpected - actual : " << y - arg;
   }
   return result;
+}
+
+MATCHER_P(IsAlmostEqualTo, y, "") {
+  return ExplainMatchResult(
+      IsAlmostEqualToWithTolerance(y, kTolerance), arg, result_listener);
 }
 
 const double kStep = 1e-8;
@@ -266,23 +279,52 @@ TEST(Jet, Abs) {
   }
 }
 
+#if defined(CERES_HAS_POSIX_BESSEL_FUNCTIONS) || \
+    defined(CERES_HAS_CPP17_BESSEL_FUNCTIONS)
 TEST(Jet, Bessel) {
   J zero = J(0.0);
+  J z = MakeJet(0.1, -2.7, 1e-3);
 
+#ifdef CERES_HAS_POSIX_BESSEL_FUNCTIONS
   EXPECT_THAT(BesselJ0(zero), IsAlmostEqualTo(J(1.0)));
   EXPECT_THAT(BesselJ1(zero), IsAlmostEqualTo(zero));
   EXPECT_THAT(BesselJn(2, zero), IsAlmostEqualTo(zero));
   EXPECT_THAT(BesselJn(3, zero), IsAlmostEqualTo(zero));
 
-  J z = MakeJet(0.1, -2.7, 1e-3);
-
   EXPECT_THAT(BesselJ0(z), IsAlmostEqualTo(BesselJn(0, z)));
   EXPECT_THAT(BesselJ1(z), IsAlmostEqualTo(BesselJn(1, z)));
 
-  //  See formula http://dlmf.nist.gov/10.6.E1
+  // See formula http://dlmf.nist.gov/10.6.E1
   EXPECT_THAT(BesselJ0(z) + BesselJn(2, z),
               IsAlmostEqualTo((2.0 / z) * BesselJ1(z)));
+#endif  // CERES_HAS_POSIX_BESSEL_FUNCTIONS
+
+#ifdef CERES_HAS_CPP17_BESSEL_FUNCTIONS
+  EXPECT_THAT(cyl_bessel_j(0, zero), IsAlmostEqualTo(J(1.0)));
+  EXPECT_THAT(cyl_bessel_j(1, zero), IsAlmostEqualTo(zero));
+  EXPECT_THAT(cyl_bessel_j(2, zero), IsAlmostEqualTo(zero));
+  EXPECT_THAT(cyl_bessel_j(3, zero), IsAlmostEqualTo(zero));
+
+  EXPECT_THAT(cyl_bessel_j(0, z), IsAlmostEqualTo(BesselJn(0, z)));
+  EXPECT_THAT(cyl_bessel_j(1, z), IsAlmostEqualTo(BesselJn(1, z)));
+
+  // MSVC Bessel functions and their derivatives produce errors slightly above
+  // kTolerance. Provide an alternative variant with a relaxed threshold.
+  constexpr double kRelaxedTolerance = 10 * kTolerance;
+
+  // See formula http://dlmf.nist.gov/10.6.E1
+  EXPECT_THAT(cyl_bessel_j(0, z) + cyl_bessel_j(2, z),
+              IsAlmostEqualToWithTolerance((2.0 / z) * cyl_bessel_j(1, z),
+                                           kRelaxedTolerance));
+
+  // MSVC does not throw an exception on invalid first argument
+#ifndef _MSC_VER
+  EXPECT_THROW(cyl_bessel_j(-1, zero), std::domain_error);
+#endif  // defined(_MSC_VER)
+#endif  // defined(CERES_HAS_CPP17_BESSEL_FUNCTIONS)
 }
+#endif  // defined(CERES_HAS_POSIX_BESSEL_FUNCTIONS) ||
+        // defined(CERES_HAS_CPP17_BESSEL_FUNCTIONS)
 
 TEST(Jet, Floor) {
   {  // floor of a positive number works.
@@ -375,7 +417,7 @@ TEST(Jet, Log1p) {
     J x = MakeJet(1e-16, 1e-8, 1e-4);
     EXPECT_THAT(log1p(x),
                 IsAlmostEqualTo(MakeJet(9.9999999999999998e-17, 1e-8, 1e-4)));
-    // log(1 + x) collapes to 0
+    // log(1 + x) collapses to 0
     J v = log(J{1} + x);
     EXPECT_TRUE(v.a == 0);
   }
@@ -388,7 +430,7 @@ TEST(Jet, Expm1) {
   {  // expm1(x) does not loose precision for small x
     J x = MakeJet(9.9999999999999998e-17, 1e-8, 1e-4);
     EXPECT_THAT(expm1(x), IsAlmostEqualTo(MakeJet(1e-16, 1e-8, 1e-4)));
-    // exp(x) - 1 collapes to 0
+    // exp(x) - 1 collapses to 0
     J v = exp(x) - J{1};
     EXPECT_TRUE(v.a == 0);
   }
@@ -591,7 +633,6 @@ TEST(Jet, Hypot2) {
   EXPECT_THAT(hypot(huge, J{0}), IsAlmostEqualTo(huge));
 }
 
-#ifdef CERES_HAS_CPP17
 TEST(Jet, Hypot3) {
   J zero = MakeJet(0.0, 2.0, 3.14);
 
@@ -633,7 +674,89 @@ TEST(Jet, Hypot3) {
 #endif
 }
 
-#endif  // defined(CERES_HAS_CPP17)
+TEST(Jet, AccurateNorm) {
+  // The arguments form Pythagorean quadruples to obtain exact norms.
+  const J a = MakeJet(3.0, 1.0, 0.0);
+  const J b = MakeJet(4.0, 0.0, 1.0);
+  const J c = MakeJet(12.0, 2.0, -1.0);
+  const J d = MakeJet(84.0, -1.0, 3.0);
+
+  // d/dx_i sqrt(x_1^2 + ... + x_n^2) = x_i / sqrt(x_1^2 + ... + x_n^2)
+  EXPECT_THAT(AccurateNorm(a, b),
+              IsAlmostEqualTo(MakeJet(5.0, 3.0 / 5.0, 4.0 / 5.0)));
+  EXPECT_THAT(AccurateNorm(a, b, c),
+              IsAlmostEqualTo(MakeJet(13.0, 27.0 / 13.0, -8.0 / 13.0)));
+  EXPECT_THAT(AccurateNorm(a, b, c, d),
+              IsAlmostEqualTo(MakeJet(85.0, -57.0 / 85.0, 244.0 / 85.0)));
+
+  // Arguments that are zero do not contribute to the derivative.
+  const J zero = MakeJet(0.0, 2.0, 3.14);
+  EXPECT_THAT(AccurateNorm(a, zero), IsAlmostEqualTo(a));
+  EXPECT_THAT(AccurateNorm(zero, b, zero), IsAlmostEqualTo(b));
+  EXPECT_THAT(AccurateNorm(zero, zero, zero, d), IsAlmostEqualTo(d));
+  EXPECT_THAT(AccurateNorm(-a, zero, zero), IsAlmostEqualTo(a));
+
+  EXPECT_THAT(AccurateNorm(x, y), IsAlmostEqualTo(hypot(x, y)));
+  EXPECT_THAT(AccurateNorm(x, y, z), IsAlmostEqualTo(hypot(x, y, z)));
+}
+
+template <typename AlwaysVoid, typename... Args>
+struct IsAccurateNormCallable : std::false_type {};
+
+template <typename... Args>
+struct IsAccurateNormCallable<
+    std::void_t<decltype(AccurateNorm(std::declval<Args>()...))>,
+    Args...> : std::true_type {};
+
+static_assert(IsAccurateNormCallable<void, J, J>::value);
+static_assert(IsAccurateNormCallable<void, J, J, const J&, J&>::value);
+static_assert(!IsAccurateNormCallable<void, J, J, double>::value,
+              "AccurateNorm must not accept mixed Jet and scalar arguments");
+static_assert(!IsAccurateNormCallable<void, J, J, Jet<double, 3>>::value,
+              "AccurateNorm must not accept Jets of different sizes");
+
+TEST(Jet, AccurateRNorm) {
+  // The arguments form Pythagorean quadruples to obtain exact norms.
+  const J a = MakeJet(3.0, 1.0, 0.0);
+  const J b = MakeJet(4.0, 0.0, 1.0);
+  const J c = MakeJet(12.0, 2.0, -1.0);
+  const J d = MakeJet(84.0, -1.0, 3.0);
+
+  // d/dx_i 1 / sqrt(x_1^2 + ... + x_n^2) = -x_i / (x_1^2 + ... + x_n^2)^(3/2)
+  EXPECT_THAT(AccurateRNorm(a, b),
+              IsAlmostEqualTo(MakeJet(1.0 / 5.0, -3.0 / 125.0, -4.0 / 125.0)));
+  EXPECT_THAT(
+      AccurateRNorm(a, b, c),
+      IsAlmostEqualTo(MakeJet(1.0 / 13.0, -27.0 / 2197.0, 8.0 / 2197.0)));
+  EXPECT_THAT(
+      AccurateRNorm(a, b, c, d),
+      IsAlmostEqualTo(MakeJet(1.0 / 85.0, 57.0 / 614125.0, -244.0 / 614125.0)));
+
+  // Arguments that are zero do not contribute to the derivative.
+  const J zero = MakeJet(0.0, 2.0, 3.14);
+  EXPECT_THAT(AccurateRNorm(a, zero), IsAlmostEqualTo(1.0 / a));
+  EXPECT_THAT(AccurateRNorm(zero, b, zero), IsAlmostEqualTo(1.0 / b));
+  EXPECT_THAT(AccurateRNorm(zero, zero, zero, d), IsAlmostEqualTo(1.0 / d));
+  EXPECT_THAT(AccurateRNorm(-a, zero, zero), IsAlmostEqualTo(1.0 / a));
+
+  EXPECT_THAT(AccurateRNorm(x, y), IsAlmostEqualTo(1.0 / hypot(x, y)));
+  EXPECT_THAT(AccurateRNorm(x, y, z), IsAlmostEqualTo(1.0 / hypot(x, y, z)));
+}
+
+template <typename AlwaysVoid, typename... Args>
+struct IsAccurateRNormCallable : std::false_type {};
+
+template <typename... Args>
+struct IsAccurateRNormCallable<
+    std::void_t<decltype(AccurateRNorm(std::declval<Args>()...))>,
+    Args...> : std::true_type {};
+
+static_assert(IsAccurateRNormCallable<void, J, J>::value);
+static_assert(IsAccurateRNormCallable<void, J, J, const J&, J&>::value);
+static_assert(!IsAccurateRNormCallable<void, J, J, double>::value,
+              "AccurateRNorm must not accept mixed Jet and scalar arguments");
+static_assert(!IsAccurateRNormCallable<void, J, J, Jet<double, 3>>::value,
+              "AccurateRNorm must not accept Jets of different sizes");
 
 #ifdef CERES_HAS_CPP20
 
@@ -644,7 +767,7 @@ TEST(Jet, Lerp) {
   EXPECT_THAT(lerp(y, y, J{0}), IsAlmostEqualTo(y));
   EXPECT_THAT(lerp(x, y, J{0.5}), IsAlmostEqualTo((x + y) / J{2.0}));
   EXPECT_THAT(lerp(x, y, J{2}), IsAlmostEqualTo(J{2.0} * y - x));
-  EXPECT_THAT(lerp(x, y, J{-2}), IsAlmostEqualTo(J{3.0} * x - J{2} * x));
+  EXPECT_THAT(lerp(x, y, J{-2}), IsAlmostEqualTo(J{3.0} * x - J{2} * y));
 }
 
 TEST(Jet, Midpoint) {
@@ -682,7 +805,7 @@ TEST(Jet, Fma) {
   EXPECT_THAT(v, IsAlmostEqualTo(w));
 }
 
-TEST(Jet, Fmax) {
+TEST(Jet, FmaxJetWithJet) {
   Fenv env;
   // Clear all exceptions to ensure none are set by the following function
   // calls.
@@ -690,19 +813,54 @@ TEST(Jet, Fmax) {
 
   EXPECT_THAT(fmax(x, y), IsAlmostEqualTo(x));
   EXPECT_THAT(fmax(y, x), IsAlmostEqualTo(x));
+
+  // Average the Jets on equality (of scalar parts).
+  const J scalar_part_only_equal_to_x = J(x.a, 2 * x.v);
+  const J average = (x + scalar_part_only_equal_to_x) * 0.5;
+  EXPECT_THAT(fmax(x, scalar_part_only_equal_to_x), IsAlmostEqualTo(average));
+  EXPECT_THAT(fmax(scalar_part_only_equal_to_x, x), IsAlmostEqualTo(average));
+
+  // Follow convention of fmax(): treat NANs as missing values.
+  const J nan_scalar_part(std::numeric_limits<double>::quiet_NaN(), 2 * x.v);
+  EXPECT_THAT(fmax(x, nan_scalar_part), IsAlmostEqualTo(x));
+  EXPECT_THAT(fmax(nan_scalar_part, x), IsAlmostEqualTo(x));
+
+#ifndef CERES_NO_FENV_ACCESS
+  EXPECT_EQ(std::fetestexcept(FE_ALL_EXCEPT & ~FE_INEXACT), 0);
+#endif
+}
+
+TEST(Jet, FmaxJetWithScalar) {
+  Fenv env;
+  // Clear all exceptions to ensure none are set by the following function
+  // calls.
+  std::feclearexcept(FE_ALL_EXCEPT);
+
   EXPECT_THAT(fmax(x, y.a), IsAlmostEqualTo(x));
   EXPECT_THAT(fmax(y.a, x), IsAlmostEqualTo(x));
   EXPECT_THAT(fmax(y, x.a), IsAlmostEqualTo(J{x.a}));
   EXPECT_THAT(fmax(x.a, y), IsAlmostEqualTo(J{x.a}));
+
+  // Average the Jet and scalar cast to a Jet on equality (of scalar parts).
+  const J average = (x + J{x.a}) * 0.5;
+  EXPECT_THAT(fmax(x, x.a), IsAlmostEqualTo(average));
+  EXPECT_THAT(fmax(x.a, x), IsAlmostEqualTo(average));
+
+  // Follow convention of fmax(): treat NANs as missing values.
   EXPECT_THAT(fmax(x, std::numeric_limits<double>::quiet_NaN()),
               IsAlmostEqualTo(x));
   EXPECT_THAT(fmax(std::numeric_limits<double>::quiet_NaN(), x),
               IsAlmostEqualTo(x));
+  const J nan_scalar_part(std::numeric_limits<double>::quiet_NaN(), 2 * x.v);
+  EXPECT_THAT(fmax(nan_scalar_part, x.a), IsAlmostEqualTo(J{x.a}));
+  EXPECT_THAT(fmax(x.a, nan_scalar_part), IsAlmostEqualTo(J{x.a}));
 
+#ifndef CERES_NO_FENV_ACCESS
   EXPECT_EQ(std::fetestexcept(FE_ALL_EXCEPT & ~FE_INEXACT), 0);
+#endif
 }
 
-TEST(Jet, Fmin) {
+TEST(Jet, FminJetWithJet) {
   Fenv env;
   // Clear all exceptions to ensure none are set by the following function
   // calls.
@@ -710,16 +868,51 @@ TEST(Jet, Fmin) {
 
   EXPECT_THAT(fmin(x, y), IsAlmostEqualTo(y));
   EXPECT_THAT(fmin(y, x), IsAlmostEqualTo(y));
+
+  // Average the Jets on equality (of scalar parts).
+  const J scalar_part_only_equal_to_x = J(x.a, 2 * x.v);
+  const J average = (x + scalar_part_only_equal_to_x) * 0.5;
+  EXPECT_THAT(fmin(x, scalar_part_only_equal_to_x), IsAlmostEqualTo(average));
+  EXPECT_THAT(fmin(scalar_part_only_equal_to_x, x), IsAlmostEqualTo(average));
+
+  // Follow convention of fmin(): treat NANs as missing values.
+  const J nan_scalar_part(std::numeric_limits<double>::quiet_NaN(), 2 * x.v);
+  EXPECT_THAT(fmin(x, nan_scalar_part), IsAlmostEqualTo(x));
+  EXPECT_THAT(fmin(nan_scalar_part, x), IsAlmostEqualTo(x));
+
+#ifndef CERES_NO_FENV_ACCESS
+  EXPECT_EQ(std::fetestexcept(FE_ALL_EXCEPT & ~FE_INEXACT), 0);
+#endif
+}
+
+TEST(Jet, FminJetWithScalar) {
+  Fenv env;
+  // Clear all exceptions to ensure none are set by the following function
+  // calls.
+  std::feclearexcept(FE_ALL_EXCEPT);
+
   EXPECT_THAT(fmin(x, y.a), IsAlmostEqualTo(J{y.a}));
   EXPECT_THAT(fmin(y.a, x), IsAlmostEqualTo(J{y.a}));
   EXPECT_THAT(fmin(y, x.a), IsAlmostEqualTo(y));
   EXPECT_THAT(fmin(x.a, y), IsAlmostEqualTo(y));
+
+  // Average the Jet and scalar cast to a Jet on equality (of scalar parts).
+  const J average = (x + J{x.a}) * 0.5;
+  EXPECT_THAT(fmin(x, x.a), IsAlmostEqualTo(average));
+  EXPECT_THAT(fmin(x.a, x), IsAlmostEqualTo(average));
+
+  // Follow convention of fmin(): treat NANs as missing values.
   EXPECT_THAT(fmin(x, std::numeric_limits<double>::quiet_NaN()),
               IsAlmostEqualTo(x));
   EXPECT_THAT(fmin(std::numeric_limits<double>::quiet_NaN(), x),
               IsAlmostEqualTo(x));
+  const J nan_scalar_part(std::numeric_limits<double>::quiet_NaN(), 2 * x.v);
+  EXPECT_THAT(fmin(nan_scalar_part, x.a), IsAlmostEqualTo(J{x.a}));
+  EXPECT_THAT(fmin(x.a, nan_scalar_part), IsAlmostEqualTo(J{x.a}));
 
+#ifndef CERES_NO_FENV_ACCESS
   EXPECT_EQ(std::fetestexcept(FE_ALL_EXCEPT & ~FE_INEXACT), 0);
+#endif
 }
 
 TEST(Jet, Fdim) {
@@ -744,7 +937,9 @@ TEST(Jet, Fdim) {
   EXPECT_TRUE(isnan(fdim(x, std::numeric_limits<double>::quiet_NaN())));
   EXPECT_TRUE(isnan(fdim(std::numeric_limits<double>::quiet_NaN(), x)));
 
+#ifndef CERES_NO_FENV_ACCESS
   EXPECT_EQ(std::fetestexcept(FE_ALL_EXCEPT & ~FE_INEXACT), 0);
+#endif
 }
 
 TEST(Jet, CopySign) {
@@ -842,6 +1037,22 @@ TEST(Jet, CopySign) {
     EXPECT_FALSE(std::signbit(z.v[1])) << z;
     EXPECT_FALSE(isnan(z.v[0])) << z;
     EXPECT_FALSE(isnan(z.v[1])) << z;
+  }
+}
+
+TEST(Jet, CbrtExtremeMagnitudes) {
+  // Verify cbrt avoids f.a * f.a overflow and underflow.
+  {
+    J z = cbrt(MakeJet(1e200, 1.0, -2.0));
+    const double r = std::cbrt(1e200);
+    const double d = 3.0 * r * r;
+    EXPECT_THAT(z, IsAlmostEqualTo(MakeJet(r, 1.0 / d, -2.0 / d)));
+  }
+  {
+    J z = cbrt(MakeJet(-1e-200, 1.0, -2.0));
+    const double r = std::cbrt(-1e-200);
+    const double d = 3.0 * r * r;
+    EXPECT_THAT(z, IsAlmostEqualTo(MakeJet(r, 1.0 / d, -2.0 / d)));
   }
 }
 
@@ -1282,5 +1493,8 @@ TYPED_TEST(JetTest, Nested3XComparison) {
 
 #endif  // GTEST_HAS_TYPED_TEST
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
+
+#ifdef _MSC_VER
+#pragma float_control(pop)
+#endif

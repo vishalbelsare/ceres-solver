@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -38,10 +38,12 @@
 #ifndef CERES_PUBLIC_SIZED_COST_FUNCTION_H_
 #define CERES_PUBLIC_SIZED_COST_FUNCTION_H_
 
+#include <cstdint>
+#include <initializer_list>
+
 #include "ceres/cost_function.h"
+#include "ceres/internal/parameter_dims.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
-#include "internal/parameter_dims.h"
 
 namespace ceres {
 
@@ -49,16 +51,16 @@ template <int kNumResiduals, int... Ns>
 class SizedCostFunction : public CostFunction {
  public:
   static_assert(kNumResiduals > 0 || kNumResiduals == DYNAMIC,
-                "Cost functions must have at least one residual block.");
+                "Cost functions must have at least one residual.");
   static_assert(internal::StaticParameterDims<Ns...>::kIsValid,
                 "Invalid parameter block dimension detected. Each parameter "
-                "block dimension must be bigger than zero.");
+                "block dimension must be greater than zero.");
 
   using ParameterDims = internal::StaticParameterDims<Ns...>;
 
   SizedCostFunction() {
     set_num_residuals(kNumResiduals);
-    *mutable_parameter_block_sizes() = std::vector<int32_t>{Ns...};
+    *mutable_parameter_block_sizes() = std::initializer_list<int32_t>{Ns...};
   }
 
   // Subclasses must implement Evaluate().

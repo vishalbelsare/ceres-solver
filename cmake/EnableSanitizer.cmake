@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2019 Google Inc. All rights reserved.
+# Copyright 2023 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -85,7 +85,7 @@ macro(enable_sanitizer)
       message(FATAL_ERROR "Specified sanitizer: ${REQUESTED_SANITIZER} is not "
         "supported by the compiler.")
     endif()
-    message(STATUS "Enabling sanitizer: ${REQUESTED_SANITIZER}")
+    message(DEBUG "Enabling sanitizer: ${REQUESTED_SANITIZER}")
     set(ADDED_SANITIZER TRUE)
     # As per the Clang documentation, the sanitizer flags must be added to both
     # the compiler and linker flags.

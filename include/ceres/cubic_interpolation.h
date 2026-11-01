@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2025 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,9 +31,13 @@
 #ifndef CERES_PUBLIC_CUBIC_INTERPOLATION_H_
 #define CERES_PUBLIC_CUBIC_INTERPOLATION_H_
 
+#include <algorithm>
+#include <cmath>
+#include <type_traits>
+
 #include "Eigen/Core"
+#include "absl/log/check.h"
 #include "ceres/internal/export.h"
-#include "glog/logging.h"
 
 namespace ceres {
 
@@ -115,11 +119,11 @@ void CubicHermiteSpline(const Eigen::Matrix<double, kDataDimension, 1>& p0,
 //
 // Example usage:
 //
-//  const double data[] = {1.0, 2.0, 5.0, 6.0};
-//  Grid1D<double, 1> grid(data, 0, 4);
-//  CubicInterpolator<Grid1D<double, 1>> interpolator(grid);
-//  double f, dfdx;
-//  interpolator.Evaluator(1.5, &f, &dfdx);
+//   const double data[] = {1.0, 2.0, 5.0, 6.0};
+//   Grid1D<double, 1> grid(data, 0, 4);
+//   CubicInterpolator<Grid1D<double, 1>> interpolator(grid);
+//   double f, dfdx;
+//   interpolator.Evaluate(1.5, &f, &dfdx);
 template <typename Grid>
 class CubicInterpolator {
  public:
@@ -166,12 +170,11 @@ class CubicInterpolator {
 //   [begin, ..., end - 1]
 //
 // Since the input array is finite and the grid is infinite, values
-// outside this interval needs to be computed. Grid1D uses the value
-// from the nearest edge.
+// outside this interval are computed by clamping to the nearest edge.
 //
 // The function being provided can be vector valued, in which case
-// kDataDimension > 1. The dimensional slices of the function maybe
-// interleaved, or they maybe stacked, i.e, if the function has
+// kDataDimension > 1. The dimensional slices of the function may be
+// interleaved, or they may be stacked, i.e., if the function has
 // kDataDimension = 2, if kInterleaved = true, then it is stored as
 //
 //   f01, f02, f11, f12 ....
@@ -190,15 +193,18 @@ struct Grid1D {
     CHECK_LT(begin, end);
   }
 
-  EIGEN_STRONG_INLINE void GetValue(const int n, double* f) const {
-    const int idx = (std::min)((std::max)(begin_, n), end_ - 1) - begin_;
+  template <typename U>
+  EIGEN_STRONG_INLINE void GetValue(const int n, U* f) const {
+    static_assert(std::is_convertible_v<T, U>,
+                  "Grid1D::GetValue output type U must be convertible to T");
+    const int idx = std::clamp(n, begin_, end_ - 1) - begin_;
     if (kInterleaved) {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<double>(data_[kDataDimension * idx + i]);
+        f[i] = static_cast<U>(data_[kDataDimension * idx + i]);
       }
     } else {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<double>(data_[i * num_values_ + idx]);
+        f[i] = static_cast<U>(data_[i * num_values_ + idx]);
       }
     }
   }
@@ -258,8 +264,8 @@ class BiCubicInterpolator {
     CHECK_GE(+Grid::DATA_DIMENSION, 1);
   }
 
-  // Evaluate the interpolated function value and/or its
-  // derivative. Uses the nearest point on the grid boundary if r or
+  // Evaluates the interpolated function value and/or its
+  // derivatives. Uses the nearest point on the grid boundary if r or
   // c is out of bounds.
   void Evaluate(
       double r, double c, double* f, double* dfdr, double* dfdc) const {
@@ -349,26 +355,25 @@ class BiCubicInterpolator {
 
 // An object that implements an infinite two dimensional grid needed
 // by the BiCubicInterpolator where the source of the function values
-// is an grid of type T on the grid
+// is a grid of type T on the grid
 //
-//   [(row_start,   col_start), ..., (row_start,   col_end - 1)]
-//   [                          ...                            ]
-//   [(row_end - 1, col_start), ..., (row_end - 1, col_end - 1)]
+//   [(row_begin, col_begin), ..., (row_begin, col_end - 1)]
+//   [                        ...                         ]
+//   [(row_end - 1, col_begin), ..., (row_end - 1, col_end - 1)]
 //
 // Since the input grid is finite and the grid is infinite, values
-// outside this interval needs to be computed. Grid2D uses the value
-// from the nearest edge.
+// outside this interval are computed by clamping to the nearest edge.
 //
 // The function being provided can be vector valued, in which case
-// kDataDimension > 1. The data maybe stored in row or column major
-// format and the various dimensional slices of the function maybe
-// interleaved, or they maybe stacked, i.e, if the function has
+// kDataDimension > 1. The data may be stored in row or column major
+// format and the various dimensional slices of the function may be
+// interleaved, or they may be stacked, i.e., if the function has
 // kDataDimension = 2, is stored in row-major format and if
 // kInterleaved = true, then it is stored as
 //
 //   f001, f002, f011, f012, ...
 //
-// A commonly occuring example are color images (RGB) where the three
+// A commonly occurring example are color images (RGB) where the three
 // channels are stored interleaved.
 //
 // If kInterleaved = false, then it is stored as
@@ -400,22 +405,23 @@ struct Grid2D {
     CHECK_LT(col_begin, col_end);
   }
 
-  EIGEN_STRONG_INLINE void GetValue(const int r, const int c, double* f) const {
-    const int row_idx =
-        (std::min)((std::max)(row_begin_, r), row_end_ - 1) - row_begin_;
-    const int col_idx =
-        (std::min)((std::max)(col_begin_, c), col_end_ - 1) - col_begin_;
+  template <typename U>
+  EIGEN_STRONG_INLINE void GetValue(const int r, const int c, U* f) const {
+    static_assert(std::is_convertible_v<T, U>,
+                  "Grid2D::GetValue output type U must be convertible to T");
+    const int row_idx = std::clamp(r, row_begin_, row_end_ - 1) - row_begin_;
+    const int col_idx = std::clamp(c, col_begin_, col_end_ - 1) - col_begin_;
 
     const int n = (kRowMajor) ? num_cols_ * row_idx + col_idx
                               : num_rows_ * col_idx + row_idx;
 
     if (kInterleaved) {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<double>(data_[kDataDimension * n + i]);
+        f[i] = static_cast<U>(data_[kDataDimension * n + i]);
       }
     } else {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<double>(data_[i * num_values_ + n]);
+        f[i] = static_cast<U>(data_[i * num_values_ + n]);
       }
     }
   }

@@ -11,6 +11,320 @@
 Version History
 ===============
 
+Unreleased
+==========
+
+New Features
+------------
+
+#. Added ``CUDA_SPARSE`` sparse linear algebra library backend powered by
+   NVIDIA ``cuDSS``, enabling GPU-accelerated ``SPARSE_NORMAL_CHOLESKY`` and
+   ``SPARSE_SCHUR`` solves. (Mark Shachkov, Ben Hamilton & Sameer Agarwal)
+#. Mixed precision solves + iterative refinement when using ``SUITE_SPARSE``
+   as the sparse linear algebra library (requires SuiteSparse 7.4.0 or later
+   for single-precision ``CHOLMOD``). (Sameer Agarwal)
+#. Added ``AccurateNorm`` and ``AccurateRNorm`` for overflow and underflow safe
+   variadic norms accurate to nearly full working precision. Their Jet
+   derivatives are defined wherever the norm is nonzero, unlike those of nested
+   two-argument norms. (Sergiu Deitsch)
+#. Simplify instantiation of cost functions and their functors by forwarding
+   functor constructor arguments directly, and add ``std::unique_ptr`` and
+   :enum:`Ownership` constructors across cost and first-order functions.
+   (Sergiu Deitsch & Sameer Agarwal)
+#. Add support for maximum matrix sizes (``kMaxResiduals`` and
+   ``kMaxParameters``) to :class:`TinySolver`,
+   :class:`TinySolverAutoDiffFunction`, and
+   :class:`TinySolverCostFunctionAdapter` to support zero dynamic memory
+   allocation when dimensions are ``Eigen::Dynamic``. (Pez Firoozfam)
+#. Add ``Residuals()`` and ``Jacobian()`` getters to :class:`TinySolver`.
+   (connorlee77)
+#. Do not restrict :class:`Grid1D` and :class:`Grid2D` output to ``double``.
+   (Sergiu Deitsch)
+#. Allow :func:`AngleAxisRotatePoint` to be applied in-place. (Sergiu Deitsch
+   & @CatInTheRain)
+#. Allow specifying the memory layout of quaternion coefficients via a
+   template parameter in rotation functions and reuse rotation functionality in
+   :class:`QuaternionManifold` and :class:`EigenQuaternionManifold`. (Sergiu
+   Deitsch)
+#. Provide ``Eigen::NumTraits`` ``quiet_NaN`` and ``infinity`` for
+   :class:`Jet`. (Sergiu Deitsch)
+#. Move C++17 Bessel functions availability checks from configuration time to
+   inclusion time, with fallback to POSIX implementations on ``libc++``.
+   (Sergiu Deitsch)
+#. Install a software bill of materials (SBOM) in the `SPDX
+   <https://spdx.dev/>`_ format describing the package, its license, and the
+   libraries it links against when using CMake 4.3 or later. The SBOM is not
+   generated if a static Abseil requires whole archive linkage. (Sergiu
+   Deitsch)
+
+
+Backward Incompatible API Changes
+---------------------------------
+
+#. ``glog``, ``gflags``, and ``MINIGLOG`` have been removed and replaced by
+   `Abseil <https://abseil.io/>`_ (version ``20240116`` or later).
+   `GoogleTest <https://github.com/google/googletest>`_ (version ``1.14.0`` or
+   later) is now required when ``BUILD_TESTING=ON``. (Sameer Agarwal, Reinhold
+   Gschweicher & Sergiu Deitsch)
+#. :class:`GradientProblem` and related classes now exclusively use
+   ``std::unique_ptr`` instead of raw pointers for ownership transfer. (Sameer
+   Agarwal)
+#. Fix casing of ``StringToLoggingType`` and ``StringToDumpFormatType``
+   (formerly ``StringToLoggingtype`` and ``StringToDumpFormatype``) for
+   consistency with the rest of the API, and fix a duplicate declaration in
+   ``ceres/types.h``. (Sameer Agarwal)
+#. Ceres Solver now requires CMake 3.22 or later and Eigen 3.3.4 or later.
+   (Sergiu Deitsch)
+#. The ``WITH_SUITESPARSE`` CMake option (formerly ``SUITESPARSE``) now
+   defaults to ``OFF``. Passing ``-DWITH_SUITESPARSE=ON`` restores the
+   previous behavior, but makes the resulting Ceres build GPL licensed unless
+   you hold a commercial SuiteSparse license. (Sergiu Deitsch)
+#. CMake configuration now reports dependencies using standard package output
+   and ``FeatureSummary``, and feature options are renamed with a ``WITH_``
+   prefix (e.g. ``SUITESPARSE`` is now ``WITH_SUITESPARSE``, ``USE_CUDA`` is
+   now ``WITH_CUDA``). The ``LIB_SUFFIX``, ``MSVC_USE_STATIC_CRT``,
+   ``EXPORT_BUILD_DIR``, and ``<DEPENDENCY>_INCLUDE/LIBRARY_DIR_HINTS``
+   options are removed in favor of standard CMake variables. See
+   :ref:`options-controlling-ceres-configuration`. (Sergiu Deitsch)
+#. Linking against the legacy unscoped ``ceres`` CMake import target now emits
+   a deprecation warning; link against ``Ceres::ceres`` instead. (Sergiu
+   Deitsch)
+#. Support for 32-bit MinGW has been removed. (Sergiu Deitsch)
+
+
+Bug Fixes & Minor Changes
+-------------------------
+
+#. Use ``absl`` hash and B-tree containers in graph algorithms and
+   preprocessor, substantially reducing preprocessor time when finding an
+   automatic Schur ordering. (Sameer Agarwal)
+#. Remove a level of indirection when using ``CellInfo``, improving the
+   performance of the Schur eliminator and block diagonal preconditioners.
+   (Sameer Agarwal)
+#. Reorder the fields in ``ParameterBlock`` to group hot fields together and
+   reduce cache misses. (Sameer Agarwal)
+#. Preserve caller orderings during preprocessing so subsequent ``Solve``
+   calls are not mutated. (RanaPriyansh)
+#. Apply deterministic parameter block reordering. (Johannes Schönberger)
+#. Fix threading bug in ``CovarianceImpl`` where an extra thread was spawned
+   even when ``num_threads = 1``. (Matt Vitelli)
+#. Fix a bug in inner iterations where round-off error could cause an inner
+   iteration with slightly higher cost to be accepted. (Sameer Agarwal)
+#. Skip structure detection on preprocessor failure. (Dmitriy Korchemkin)
+#. Fix discrepancy in ``QuaternionRotatePoint`` for different quaternion
+   orders. (Sergiu Deitsch)
+#. Do not differentiate the norm at gimbal lock to avoid ``NaN`` derivatives.
+   (Sergiu Deitsch)
+#. Use Euler parameters in ``QuaternionPlusImpl`` while preserving the
+   half-angle tangent space scaling convention. (Sergiu Deitsch)
+#. Avoid division by zero in rotation routines under
+   ``-fsanitize=float-divide-by-zero`` and partially revert 3-argument
+   ``std::hypot`` zero checks due to ``libc++`` underflow. (Sergiu Deitsch)
+#. Fix an initialization order error in ``cuda_sparse_cholesky.cc``. (Sameer
+   Agarwal)
+#. Fix ODR violations when compiling Ceres with Schur specializations and Link
+   Time Optimization (LTO). (Sergiu Deitsch)
+#. Ensure ``DynamicCostFunctionToFunctor`` is exported in shared library
+   builds and ensure consistent visibility attributes. (Sergiu Deitsch)
+#. Do not rely on a preprocessor define for disabling warnings in public
+   headers. (Sergiu Deitsch)
+#. Modernize public and internal headers (``AutoDiffCostFunction``,
+   ``NumericDiffCostFunction``, ``ProductManifold``, ``EuclideanManifold``,
+   ``TinySolver``, ``InvertPSDMatrix``, ``ParameterBlock``,
+   ``cubic_interpolation.h``, ``parameter_dims.h``, ``jet_traits.h``) to C++17
+   and Abseil conventions (``absl::FixedArray``, ``absl::strings``,
+   ``absl::time``, ``std::string_view``), add an ``EventLogger`` to
+   ``TrustRegionPreprocessor``, and extensive ClangTidy cleanups. (Sameer
+   Agarwal)
+#. Support Eigen 5.0.0. (Sergiu Deitsch)
+#. Support CUDA 13 (Mackay), set ``CMAKE_CUDA_ARCHITECTURES`` depending on
+   ``CUDAToolkit_VERSION`` and link static CUDA libraries when configured
+   (Markus Heß), expose Hopper (``sm_90``) support only for CUDA 12.0 and
+   later, and replace ``--extended-lambda`` with ``--expt-extended-lambda``
+   for NVCC (Sameer Agarwal).
+#. Update bundled dependencies to support GCC 15. (Sergiu Deitsch & @adam-ce)
+#. Fix Abseil CMake package configuration usage, version checking, and
+   ``absl::log_flags`` linking. (Reinhold Gschweicher, Sameer Agarwal & Sergiu
+   Deitsch)
+#. Make ``test_util`` GTest-optional to fix benchmark builds when
+   ``BUILD_TESTING=OFF``. (Sameer Agarwal)
+#. Fix vector operations benchmark compilation (Sergey Sharybin) and eliminate
+   Google Benchmark deprecation warnings (Sergiu Deitsch).
+#. Do not export the SuiteSparse ``Partition`` target and make SuiteSparse
+   partitioning detection more robust. (Sergiu Deitsch)
+#. Do not discard caller's ``CMAKE_MODULE_PATH`` in ``CeresConfig.cmake``, use
+   native CMake ``TBB`` package configuration, do not assume Homebrew usage on
+   macOS, and enable Apple linker library deduplication. (Sergiu Deitsch)
+#. Fix shared library builds, MSVC builds, CTest build configuration
+   parameters, and bundle adjuster perturbation assertions in debug mode.
+   (Sergiu Deitsch)
+#. Fix Clang 16 compiler warnings (Johannes Schönberger), CUDA set-but-unused
+   variable warnings (Sergiu Deitsch), and missing ``std`` qualifiers and
+   header includes (Yuriy Chernyshov, Sergiu Deitsch & Sameer Agarwal).
+#. Reuse macro to format version string (Mark Shachkov) and remove remaining
+   references to ``CXSparse`` and
+   ``CreateFakeBundleAdjustmentPartitionedJacobian`` (Sameer Agarwal).
+#. Fix and modernize the Bazel build to use Bzlmod (``MODULE.bazel``), support
+   Bazel 8/9, and add missing sources, tests, benchmarks, and examples.
+   (Sameer Agarwal, Sergiu Deitsch & Laurenz)
+#. Add ReadTheDocs support, specify docs requirements, fix search on
+   ``ceres-solver.org``, document ``DumpLinearLeastSquaresProblem``, update
+   ``GradientChecker`` and installation docs, and fix various documentation
+   typos. (Sergiu Deitsch, Sameer Agarwal, Maxim Smolskiy, brettmichaelgreen,
+   reprojection.calibration, Ian Muldoon, Johannes Bruenger, @sarlinpe, Roger
+   Labbe & @valgur)
+#. Numerous GitHub Actions CI improvements (Ubuntu 24.04, macOS 14/15, Visual
+   Studio 2022, CUDA 12.5.1, Android NDK LTS, ``mold`` linker, SuiteSparse
+   testing, submodule checkout). (Sergiu Deitsch & Mark Shachkov)
+
+2.2.0
+=====
+
+New Features
+------------
+
+#. Substantial improvement to threading performance across the board
+   (Dmitry Korchemkin)
+#. Mixed precision solves + iterative refinement when using ``CUDA`` or
+   CPU based dense linear solvers, or ``EIGEN_SPARSE`` as the sparse
+   linear algebra library. (Sameer Agarwal & Joydeep Biswas)
+#. Cuda based CGNR and preconditioner support (Joydeep Biswas & Sameer
+   Agarwal)
+#. Nested Dissection (``NESDIS``) is now supported as an ordering method
+   in addition to ``AMD``. (Sameer Agarwal, Alex Stewart & Sergiu
+   Deitsch)
+#. **Power Bundle Adjustment** is available as a linear solver and as
+   a preconditioner by the name of ``SCHUR POWER SERIES EXPANSION``
+   (Mark Shachkov).
+#. Generalized Euler Angle conversions (hs293go@)
+
+
+Backward Incompatible API Changes
+---------------------------------
+
+#. :class:`LocalParameterization` has been removed, use
+   :class:`Manifold` instead.
+#. Ceres Solver now requires a C++17 compliant compiler.
+#. Ceres Solver now requires CMake version 3.16 or later.
+#. Ceres Solver now requires SuiteSparse version 4.5.6 or later.
+#. OpenMP and NO_THREADING backends have been removed. C++ threads is
+   how all threading is done.
+#. Support for ``CX_SPARSE`` as a sparse linear algebra backend has
+   been removed. Similar or better performance can be expected from
+   ``Eigen`` as the sparse linear algebra library.
+
+
+Bug Fixes & Minor Changes
+-------------------------
+#. Optimize the computation of the LM diagonal in TinySolver
+#. Improvements to multi-threaded performance for small problems that
+   had regressed due to changes to threading (Dmitrity Korchemkin)
+#. Fix handling of M_PI for MSVC (Sergiu Deitsch)
+#. Add a default value for Solver::Summary::linear_solver_ordering_type (Sameer Agarwal)
+#. Make sure that the code compiles well with CUDA 11 (Dmitriy
+   Korchemkin)
+#. Rework MSVC warning suppression (Sergiu Deitsch)
+#. Add an example for EvaluationCallback (Sameer Agarwal)
+#. Add an example for IterationCallback (Sameer Agarwal)
+#. Add end-to-end BA tests for SCHUR_POWER_SERIES_EXPANSION (Sameer Agarwal)
+#. Update documentation for linear solvers (Sameer Agarwal)
+#. Add an accessor for the CostFunctor in DynamicAutoDiffCostFunction (Sameer Agarwal)
+#. Runtime check for cudaMallocAsync support (Dmitriy Korchemkin)
+#. Remove cuda-memcheck based tests (Sameer Agarwal)
+#. Modernize ``Sphinx`` related CMake handling as well the ``Sphinx``
+   build process in the terminal. (Sergiu Deitsch)
+#. Fix macos ``sprintf`` security related warnings (Sergiu Deitsch)
+#. Lots of Cuda releated build system fixes (Sergiu Deitsch, Dmitriy
+   Korchemkin, Jason Mak)
+#. Improved windows build support (Sergiu Deitsch)
+#. Various documentation fixes (Maxim Smolskiy, Evan Levine)
+#. Improved handling of large Jacobians (Sameer Agarwal)
+#. Improved handling of infinite initial cost (Sameer Agarwal)
+#. Improved traits support for Jets (Sameer Agarwal)
+#. Improved tests for Euler angle conversion routines (@Hs293Go)
+#. Use a std::tuple to store ProductManifold for better efficiency
+   (Sergiu Deitsch)
+#. Allow default construction of ProductManifold when underlying
+   manifolds have default constructors (Sergiu Deitsch)
+#. Move LineManifold and SphereManifold into their own headers (Sameer
+   Agarwal)
+#. Fix a byte vs number of elements error when dealing with CUDA
+   workspace computations (Joydeep Biswas)
+#. Hide and prevent internal symbols from being exported (Sergiu
+   Deitsch)
+#. Switch to imported SuiteSparse, CXSparse & METIS targets.
+#. Improve compilation on Ubuntu 20.04 (Sergiu Deitsch)
+#. Update to using gtest 1.11.0 (Sameer Agarwal)
+#. Fix Euler angle conversion code to not rely on constexpr
+   constrctors for Jets. (Sameer Agarwal)
+#. BlockRandomAccessSparseMatrix now uses a BlockSparseMatrix as
+   storage instead of TripletSparseMatrix. (Dmitriy Korchemkin)
+#. Deduction guide for DynamicAutoDiffCostFunction (Sergiu Deitsch)
+#. Explicit conversions from long to ints (Alexander Ivanov)
+#. Unused code deletion/commenting and code modernization (Alexander
+   Ivanov)
+#. Improve the bazel build & tests (Alexander Ivanov)
+#. Fix a bug in QuaternionRotatePoint introduced by the use of hypot
+   earlier in this release cycle (Jonathan Taylor & Sameer Agarwal)
+#. Lots of GitHub CI improvements (Sergiu Deitsch & Dmitry Korchemkin)
+#. Improve the robustness of the Cuda based dense linear algebra tests
+   (Joydeep Biswas)
+#. Refactor storage & threading support in BlockRandomAccessMatrix and
+   its subclasses (Sameer Agarwal)
+#. Fix a bug in CoordinateDescentMinimizer related to uninitialized
+   variables (Sameer Agarwal)
+#. Remove OpenMP and NO_THREADS backends. (Sameer Agarwal)
+#. Fix version string parsing starting with SuiteSparse 6.0 (Sergiu
+   Deitsch)
+#. Use FindCUDAToolkit for CMake >= 3.17 (Alex Stewart)
+#. Add a const accessor for the Problem::Options struct used by
+   Problem. (Alex Stewart)
+#. Fix a serious performance regression when using SuiteSparse
+   introduced in `d09f7e9d5e
+   <https://github.com/ceres-solver/ceres-solver/commit/d09f7e9d5e3bfab2d7ec7e81fd6a55786edca17a>`_. (Sameer
+   Agarwal)
+#. Fix the build on QNX (Alex Stewart)
+#. Improve testing macros and documentation for Manifolds (Alex
+   Stewart)
+#. Improved code formatting (Tyler Hovanec)
+#. Better use of std::unique_ptr in the code (Mike Vitus)
+#. Fix a memory leak in ContextImpl (Sameer Agarwal)
+#. Faster locking when num_thread = 1 (Sameer Agarwal)
+#. Fix how x_norm is computed in TrustRegionMinimizer (Sameer Agarwal)
+#. Faster JACOBI preconditioner for CGNR (Sameer Agarwal)
+#. Convert internal enums to class enums (Sameer Agarwal)
+#. Improve the code in small_blas to be more compiler friendly (Sameer
+   Agarwal)
+#. Add the ability to specify the pivot threshold in
+   ::class::`Covariance::Options` (Sameer Agarwal)
+#. Modernize the internals to use C++17 (Sameer Agarwal)
+#. Choose SPMV algorithm based on the CUDA SDK Version (Joydeep
+   Biswas)
+#. Better defaults in ``bundle_adjuster.cc`` (Sameer Agarwal)
+#. Use ``foo.data()`` instead of ``&foo[0]`` (Sameer Agarwal)
+#. Fix GCC 12.1.1 LTO -Walloc-size-larger-than= warnings (Sergiu
+   Deitsch)
+#. Improved determinism in tests by re-using the same PRNG (Sergiu
+   Deitsch)
+#. Improved docs for ``vcpkg`` installation. (Sergiu Deitsch)
+#. Update FindGlog.cmake to create glog::glog target (KrisThielemans@)
+#. Improve consistency & correctness of Sphere & Line Manifolds
+   (Julio L. Paneque)
+#. Remove ``ceres/internal/random.h`` in favor of ``<random>``.
+#. Fix a crash in ``InnerProductComputer`` (Sameer Agarwal)
+#. Various fixes to improve compilation on windows using MinGW & MSVC
+   (Sergiu Deitsch)
+#. Fix fmin/fmax() to use Jet averaging on equality (Alex Stewart)
+#. Fix use of conditional preprocessor checks within a macro in tests
+   (Alex Stewart)
+#. Better support for ``CUDA memcheck`` (Joydeep Biswas)
+#. Improve the logic for linking to the platform specific threading
+   library (Sergiu Deitsch)
+#. Generate the version string at compile time (Sergiu Deitsch)
+#. :class:`NumericDiffFirstOrderFunction` can now take a dynamically
+   sized parameter vector. (Sameer Agarwal)
+#. Fix compilation with SuiteSparse 7.2.0 (Mark Shackov)
+
 2.1.0
 =====
 
@@ -46,19 +360,19 @@ New Features
      ``isinf``, ``isnormal``, ``isfinite``, ``fpclassify`` (new),
      ``fmin``, ``fmax``
 
-  * It is now possible to safely compare a :class:`Jet` against a scalar
-    (or literal) without constructing a :class:`Jet` first (even if it's
-    nested):
+   * It is now possible to safely compare a :class:`Jet` against a scalar
+     (or literal) without constructing a :class:`Jet` first (even if it's
+     nested):
 
-    .. code-block:: c++
+     .. code-block:: c++
 
-       Jet<Jet<Jet<T, N>, M>, O> x;
-       if (x == 2) { } // equivalent to x.a.a.a == 2
+        Jet<Jet<Jet<T, N>, M>, O> x;
+        if (x == 2) { } // equivalent to x.a.a.a == 2
 
 
-    This enables interaction with various arithmetic functions that
-    expect a scalar like instance, such as ``boost::math::pow<-N>``
-    for reciprocal computation.
+     This enables interaction with various arithmetic functions that
+     expect a scalar like instance, such as ``boost::math::pow<-N>``
+     for reciprocal computation.
 
 #. Add :class:`NumericDiffFirstOrderFunction` (Sameer Agarwal)
 
@@ -77,8 +391,30 @@ Backward Incompatible API Changes
 Bug Fixes & Minor Changes
 -------------------------
 
-#. Modernize the code to be inline with ``C++14`` (Sergiu Deitsch, Sameer
-   Agarwal)
+#. Worked around an MSVC ordering bug when using C++17/20 (Sergiu
+   Deitsch)
+#. Added a CITATION.cff file. (Sergiu Deitsch)
+#. Updated included gtest version to 1.11.0. This should fix some
+   ``C++20`` compilation problems. (Sameer Agarwal).
+#. Workaround ``MSVC`` ``STL`` deficiency in ``C++17`` mode (Sergiu
+   Deitsch)
+#. Fix ``Jet`` test failures on ``ARMv8`` with recent ``Xcode``
+   (Sergiu Deitsch)
+#. Fix unused arguments of ``Make1stOrderPerturbation`` (Dmitriy
+   Korchemkin)
+#. Fix ``SuiteSparse`` path and version reporting (Sergiu Deitsch)
+#. Enable `GitHub` workflows and deprecate ``TravisCI`` (Sergiu
+   Deitsch)
+#. Add missing includes (Sergiu Deitsch, Sameer Agarwal)
+#. Fix path for ``cuda-memcheck`` tests (Joydeep Biswas)
+#. ClangFormat cleanup (Sameer Agarwal)
+#. Set ``CMP0057`` policy for ``IN_LIST`` operator in
+   ``FindSuiteSparse.cmake`` (Brent Yi)
+#. Do not define unusable import targets (Sergiu Deitsch)
+#. Fix Ubuntu 18.04 shared library build (Sergiu Deitsch)
+#. Force ``C++`` linker when building the ``C`` API (Sergiu Deitsch)
+#. Modernize the code to be inline with ``C++14`` (Sergiu Deitsch,
+   Sameer Agarwal)
 #. Lots of fixes to make Ceres compile out of the box on Windows
    (Sergiu Deitsch)
 #. Standardize path handling using ``GNUImstallDirs`` (Sergiu Deitsch)

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,12 @@
 
 #include "ceres/gradient_problem_solver.h"
 
+#include <memory>
+
 #include "ceres/gradient_problem.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // Rosenbrock function; see http://en.wikipedia.org/wiki/Rosenbrock_function .
 class Rosenbrock : public ceres::FirstOrderFunction {
@@ -62,7 +63,7 @@ TEST(GradientProblemSolver, SolvesRosenbrockWithDefaultOptions) {
 
   ceres::GradientProblemSolver::Options options;
   ceres::GradientProblemSolver::Summary summary;
-  ceres::GradientProblem problem(new Rosenbrock());
+  ceres::GradientProblem problem(std::make_unique<Rosenbrock>());
   ceres::Solve(options, problem, parameters, &summary);
 
   EXPECT_EQ(CONVERGENCE, summary.termination_type);
@@ -100,7 +101,7 @@ TEST(Solver, UpdateStateEveryIterationOption) {
   double x = 50.0;
   const double original_x = x;
 
-  ceres::GradientProblem problem(new QuadraticFunction);
+  ceres::GradientProblem problem(std::make_unique<QuadraticFunction>());
   ceres::GradientProblemSolver::Options options;
   RememberingCallback callback(&x);
   options.callbacks.push_back(&callback);
@@ -127,5 +128,4 @@ TEST(Solver, UpdateStateEveryIterationOption) {
   EXPECT_NE(original_x, callback.x_values[1]);
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

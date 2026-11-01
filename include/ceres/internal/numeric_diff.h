@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,20 +35,25 @@
 #ifndef CERES_PUBLIC_INTERNAL_NUMERIC_DIFF_H_
 #define CERES_PUBLIC_INTERNAL_NUMERIC_DIFF_H_
 
+// IWYU pragma: private
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "Eigen/Dense"
 #include "Eigen/StdVector"
+#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
 #include "ceres/cost_function.h"
-#include "ceres/internal/fixed_array.h"
 #include "ceres/internal/variadic_evaluate.h"
 #include "ceres/numeric_diff_options.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // This is split from the main class because C++ doesn't allow partial template
 // specializations for member functions. The alternative is to repeat the main
@@ -126,15 +131,15 @@ struct NumericDiff {
 
     // For each parameter in the parameter block, use finite differences to
     // compute the derivative for that parameter.
-    FixedArray<double> temp_residual_array(num_residuals_internal);
-    FixedArray<double> residual_array(num_residuals_internal);
+    absl::FixedArray<double> temp_residual_array(num_residuals_internal);
+    absl::FixedArray<double> residual_array(num_residuals_internal);
     Map<ResidualVector> residuals(residual_array.data(),
                                   num_residuals_internal);
 
     for (int j = 0; j < parameter_block_size_internal; ++j) {
       const double delta = (std::max)(min_step_size, step_size(j));
 
-      if (kMethod == RIDDERS) {
+      if constexpr (kMethod == RIDDERS) {
         if (!EvaluateRiddersJacobianColumn(functor,
                                            j,
                                            delta,
@@ -342,11 +347,12 @@ struct NumericDiff {
                              options.ridders_step_shrink_factor;
 
         // Compute the difference between the previous value and the current.
-        double candidate_error = (std::max)(
-            (current_candidates->col(k) - current_candidates->col(k - 1))
-                .norm(),
-            (current_candidates->col(k) - previous_candidates->col(k - 1))
-                .norm());
+        double candidate_error = (std::max)((current_candidates->col(k) -
+                                             current_candidates->col(k - 1))
+                                                .norm(),
+                                            (current_candidates->col(k) -
+                                             previous_candidates->col(k - 1))
+                                                .norm());
 
         // If the error has decreased, update results.
         if (candidate_error <= norm_error) {
@@ -435,74 +441,65 @@ struct NumericDiff {
 //     return false;
 //   }
 // }
-template <typename ParameterDims,
-          typename Parameters = typename ParameterDims::Parameters,
-          int ParameterIdx = 0>
-struct EvaluateJacobianForParameterBlocks;
+// Internal non-recursive implementation of EvaluateJacobianForParameterBlocks.
+template <NumericDiffMethodType method,
+          int kNumResiduals,
+          typename ParameterDims,
+          int... Ns,
+          std::size_t... BlockIdx,
+          typename CostFunctor>
+inline bool EvaluateJacobianForParameterBlocksImpl(
+    const CostFunctor* functor,
+    const double* residuals_at_eval_point,
+    const NumericDiffOptions& options,
+    int num_residuals,
+    double** parameters,
+    double** jacobians,
+    std::integer_sequence<int, Ns...>,
+    std::index_sequence<BlockIdx...>) {
+  return (... &&
+          (jacobians[BlockIdx] == nullptr ||
+           NumericDiff<
+               CostFunctor,
+               method,
+               kNumResiduals,
+               ParameterDims,
+               BlockIdx,
+               Ns>::EvaluateJacobianForParameterBlock(functor,
+                                                      residuals_at_eval_point,
+                                                      options,
+                                                      num_residuals,
+                                                      BlockIdx,
+                                                      Ns,
+                                                      parameters,
+                                                      jacobians[BlockIdx])));
+}
 
-template <typename ParameterDims, int N, int... Ns, int ParameterIdx>
-struct EvaluateJacobianForParameterBlocks<ParameterDims,
-                                          std::integer_sequence<int, N, Ns...>,
-                                          ParameterIdx> {
-  template <NumericDiffMethodType method,
-            int kNumResiduals,
-            typename CostFunctor>
-  static bool Apply(const CostFunctor* functor,
-                    const double* residuals_at_eval_point,
-                    const NumericDiffOptions& options,
-                    int num_residuals,
-                    double** parameters,
-                    double** jacobians) {
-    if (jacobians[ParameterIdx] != nullptr) {
-      if (!NumericDiff<
-              CostFunctor,
-              method,
-              kNumResiduals,
-              ParameterDims,
-              ParameterIdx,
-              N>::EvaluateJacobianForParameterBlock(functor,
-                                                    residuals_at_eval_point,
-                                                    options,
-                                                    num_residuals,
-                                                    ParameterIdx,
-                                                    N,
-                                                    parameters,
-                                                    jacobians[ParameterIdx])) {
-        return false;
-      }
-    }
+template <NumericDiffMethodType method,
+          int kNumResiduals,
+          typename ParameterDims,
+          typename Seq = typename ParameterDims::Parameters,
+          typename CostFunctor>
+inline bool EvaluateJacobianForParameterBlocks(
+    const CostFunctor* functor,
+    const double* residuals_at_eval_point,
+    const NumericDiffOptions& options,
+    int num_residuals,
+    double** parameters,
+    double** jacobians) {
+  return EvaluateJacobianForParameterBlocksImpl<method,
+                                                kNumResiduals,
+                                                ParameterDims>(
+      functor,
+      residuals_at_eval_point,
+      options,
+      num_residuals,
+      parameters,
+      jacobians,
+      Seq{},
+      std::make_index_sequence<ParameterDims::kNumParameterBlocks>{});
+}
 
-    return EvaluateJacobianForParameterBlocks<ParameterDims,
-                                              std::integer_sequence<int, Ns...>,
-                                              ParameterIdx + 1>::
-        template Apply<method, kNumResiduals>(functor,
-                                              residuals_at_eval_point,
-                                              options,
-                                              num_residuals,
-                                              parameters,
-                                              jacobians);
-  }
-};
-
-// End of 'recursion'. Nothing more to do.
-template <typename ParameterDims, int ParameterIdx>
-struct EvaluateJacobianForParameterBlocks<ParameterDims,
-                                          std::integer_sequence<int>,
-                                          ParameterIdx> {
-  template <NumericDiffMethodType method,
-            int kNumResiduals,
-            typename CostFunctor>
-  static bool Apply(const CostFunctor* /* NOT USED*/,
-                    const double* /* NOT USED*/,
-                    const NumericDiffOptions& /* NOT USED*/,
-                    int /* NOT USED*/,
-                    double** /* NOT USED*/,
-                    double** /* NOT USED*/) {
-    return true;
-  }
-};
-
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #endif  // CERES_PUBLIC_INTERNAL_NUMERIC_DIFF_H_

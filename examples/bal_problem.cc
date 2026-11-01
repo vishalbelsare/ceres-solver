@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,18 +32,18 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <cstdlib>
 #include <fstream>
+#include <functional>
+#include <random>
 #include <string>
 #include <vector>
 
 #include "Eigen/Core"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "ceres/rotation.h"
-#include "glog/logging.h"
-#include "random.h"
 
-namespace ceres {
-namespace examples {
+namespace ceres::examples {
 namespace {
 using VectorRef = Eigen::Map<Eigen::VectorXd>;
 using ConstVectorRef = Eigen::Map<const Eigen::VectorXd>;
@@ -56,15 +56,14 @@ void FscanfOrDie(FILE* fptr, const char* format, T* value) {
   }
 }
 
-void PerturbPoint3(const double sigma, double* point) {
+void PerturbPoint3(std::function<double()> dist, double* point) {
   for (int i = 0; i < 3; ++i) {
-    point[i] += RandNormal() * sigma;
+    point[i] += dist();
   }
 }
 
 double Median(std::vector<double>* data) {
-  int n = data->size();
-  auto mid_point = data->begin() + n / 2;
+  auto mid_point = data->begin() + data->size() / 2;
   std::nth_element(data->begin(), mid_point, data->end());
   return *mid_point;
 }
@@ -79,7 +78,7 @@ BALProblem::BALProblem(const std::string& filename, bool use_quaternions) {
     return;
   };
 
-  // This wil die horribly on invalid files. Them's the breaks.
+  // This will die horribly on invalid files. Them's the breaks.
   FscanfOrDie(fptr, "%d", &num_cameras_);
   FscanfOrDie(fptr, "%d", &num_points_);
   FscanfOrDie(fptr, "%d", &num_observations_);
@@ -298,29 +297,39 @@ void BALProblem::Perturb(const double rotation_sigma,
   CHECK_GE(point_sigma, 0.0);
   CHECK_GE(rotation_sigma, 0.0);
   CHECK_GE(translation_sigma, 0.0);
-
+  std::mt19937 prng;
   double* points = mutable_points();
   if (point_sigma > 0) {
+    std::normal_distribution<double> point_noise_distribution(0.0, point_sigma);
     for (int i = 0; i < num_points_; ++i) {
-      PerturbPoint3(point_sigma, points + 3 * i);
+      PerturbPoint3(std::bind(point_noise_distribution, std::ref(prng)),
+                    points + 3 * i);
     }
   }
 
-  for (int i = 0; i < num_cameras_; ++i) {
-    double* camera = mutable_cameras() + camera_block_size() * i;
-
-    double angle_axis[3];
-    double center[3];
-    // Perturb in the rotation of the camera in the angle-axis
-    // representation.
-    CameraToAngleAxisAndCenter(camera, angle_axis, center);
-    if (rotation_sigma > 0.0) {
-      PerturbPoint3(rotation_sigma, angle_axis);
+  if (rotation_sigma > 0.0) {
+    std::normal_distribution<double> rotation_noise_distribution(
+        0.0, rotation_sigma);
+    for (int i = 0; i < num_cameras_; ++i) {
+      double* camera = mutable_cameras() + camera_block_size() * i;
+      double angle_axis[3];
+      double center[3];
+      // Perturb in the rotation of the camera in the angle-axis
+      // representation.
+      CameraToAngleAxisAndCenter(camera, angle_axis, center);
+      PerturbPoint3(std::bind(rotation_noise_distribution, std::ref(prng)),
+                    angle_axis);
+      AngleAxisAndCenterToCamera(angle_axis, center, camera);
     }
-    AngleAxisAndCenterToCamera(angle_axis, center, camera);
+  }
 
-    if (translation_sigma > 0.0) {
-      PerturbPoint3(translation_sigma, camera + camera_block_size() - 6);
+  if (translation_sigma > 0.0) {
+    std::normal_distribution<double> translation_noise_distribution(
+        0.0, translation_sigma);
+    for (int i = 0; i < num_cameras_; ++i) {
+      double* camera = mutable_cameras() + camera_block_size() * i;
+      PerturbPoint3(std::bind(translation_noise_distribution, std::ref(prng)),
+                    camera + camera_block_size() - 6);
     }
   }
 }
@@ -332,5 +341,4 @@ BALProblem::~BALProblem() {
   delete[] parameters_;
 }
 
-}  // namespace examples
-}  // namespace ceres
+}  // namespace ceres::examples

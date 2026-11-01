@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,13 +33,13 @@
 #include <algorithm>
 #include <utility>
 
-#include "ceres/internal/eigen.h"
+#include "absl/log/check.h"
+#include "absl/strings/str_format.h"
+#include "ceres/eigen.h"
 #include "ceres/internal/export.h"
 #include "ceres/triplet_sparse_matrix.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 DenseSparseMatrix::DenseSparseMatrix(int num_rows, int num_cols)
     : m_(Matrix(num_rows, num_cols)) {}
@@ -60,17 +60,31 @@ DenseSparseMatrix::DenseSparseMatrix(Matrix m) : m_(std::move(m)) {}
 
 void DenseSparseMatrix::SetZero() { m_.setZero(); }
 
-void DenseSparseMatrix::RightMultiply(const double* x, double* y) const {
-  VectorRef(y, num_rows()) += matrix() * ConstVectorRef(x, num_cols());
+void DenseSparseMatrix::RightMultiplyAndAccumulate(const double* x,
+                                                   double* y) const {
+  VectorRef(y, num_rows()).noalias() += m_ * ConstVectorRef(x, num_cols());
 }
 
-void DenseSparseMatrix::LeftMultiply(const double* x, double* y) const {
-  VectorRef(y, num_cols()) +=
-      matrix().transpose() * ConstVectorRef(x, num_rows());
+void DenseSparseMatrix::LeftMultiplyAndAccumulate(const double* x,
+                                                  double* y) const {
+  VectorRef(y, num_cols()).noalias() +=
+      m_.transpose() * ConstVectorRef(x, num_rows());
 }
 
 void DenseSparseMatrix::SquaredColumnNorm(double* x) const {
-  VectorRef(x, num_cols()) = m_.colwise().squaredNorm();
+  // This implementation is 3x faster than the naive version
+  // x = m_.colwise().square().sum(), likely because m_
+  // is a row major matrix.
+
+  const int num_rows = m_.rows();
+  const int num_cols = m_.cols();
+  std::fill_n(x, num_cols, 0.0);
+  const double* m = m_.data();
+  for (int i = 0; i < num_rows; ++i) {
+    for (int j = 0; j < num_cols; ++j, ++m) {
+      x[j] += (*m) * (*m);
+    }
+  }
 }
 
 void DenseSparseMatrix::ScaleColumns(const double* scale) {
@@ -95,10 +109,9 @@ void DenseSparseMatrix::ToTextFile(FILE* file) const {
   CHECK(file != nullptr);
   for (int r = 0; r < m_.rows(); ++r) {
     for (int c = 0; c < m_.cols(); ++c) {
-      fprintf(file, "% 10d % 10d %17f\n", r, c, m_(r, c));
+      absl::FPrintF(file, "% 10d % 10d %17f\n", r, c, m_(r, c));
     }
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

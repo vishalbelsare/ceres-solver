@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,11 +34,11 @@
 
 #include <memory>
 
+#include "absl/log/log.h"
 #include "ceres/dogleg_strategy.h"
 #include "ceres/levenberg_marquardt_strategy.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 TrustRegionStrategy::~TrustRegionStrategy() = default;
 
@@ -59,5 +59,4 @@ std::unique_ptr<TrustRegionStrategy> TrustRegionStrategy::Create(
   return nullptr;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

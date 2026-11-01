@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,6 +35,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -42,11 +43,9 @@
 #include "ceres/numeric_diff_test_utils.h"
 #include "ceres/test_util.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 TEST(NumericDiffCostFunction, EasyCaseFunctorCentralDifferences) {
   auto cost_function =
@@ -310,6 +309,7 @@ TEST(NumericDiffCostFunction, ExponentialCostFunctionRidders) {
 }
 
 TEST(NumericDiffCostFunction, RandomizedFunctorRidders) {
+  std::mt19937 prng;
   NumericDiffOptions options;
   // Larger initial step size is chosen to produce robust results in the
   // presence of random noise.
@@ -321,15 +321,16 @@ TEST(NumericDiffCostFunction, RandomizedFunctorRidders) {
                                                1,  // number of residuals
                                                1   // size of x1
                                                >>(
-          new RandomizedFunctor(kNoiseFactor, kRandomSeed),
+          new RandomizedFunctor(kNoiseFactor, prng),
           TAKE_OWNERSHIP,
           1,
           options);
-  RandomizedFunctor functor(kNoiseFactor, kRandomSeed);
+  RandomizedFunctor functor(kNoiseFactor, prng);
   functor.ExpectCostFunctionEvaluationIsNearlyCorrect(*cost_function);
 }
 
 TEST(NumericDiffCostFunction, RandomizedCostFunctionRidders) {
+  std::mt19937 prng;
   NumericDiffOptions options;
   // Larger initial step size is chosen to produce robust results in the
   // presence of random noise.
@@ -341,12 +342,12 @@ TEST(NumericDiffCostFunction, RandomizedCostFunctionRidders) {
                                                1,  // number of residuals
                                                1   // size of x1
                                                >>(
-          new RandomizedCostFunction(kNoiseFactor, kRandomSeed),
+          new RandomizedCostFunction(kNoiseFactor, prng),
           TAKE_OWNERSHIP,
           1,
           options);
 
-  RandomizedFunctor functor(kNoiseFactor, kRandomSeed);
+  RandomizedFunctor functor(kNoiseFactor, prng);
   functor.ExpectCostFunctionEvaluationIsNearlyCorrect(*cost_function);
 }
 
@@ -435,5 +436,40 @@ TEST(NumericDiffCostFunction, ParameterBlockConstant) {
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+struct MultiArgFunctor {
+  explicit MultiArgFunctor(int a, double c) {}
+  template <class T>
+  bool operator()(const T* params, T* residuals) const noexcept {
+    return false;
+  }
+};
+
+TEST(NumericDiffCostFunction, ArgumentForwarding) {
+  auto cost_function1 = std::make_unique<
+      NumericDiffCostFunction<EasyFunctor, CENTRAL, 3, 5, 5>>();
+  auto cost_function2 =
+      std::make_unique<NumericDiffCostFunction<MultiArgFunctor, CENTRAL, 1, 1>>(
+          1, 2);
+}
+
+TEST(NumericDiffCostFunction, UniquePtrCtor) {
+  auto cost_function1 =
+      std::make_unique<NumericDiffCostFunction<EasyFunctor, CENTRAL, 3, 5, 5>>(
+          std::make_unique<EasyFunctor>());
+  auto cost_function2 = std::make_unique<
+      NumericDiffCostFunction<EasyFunctor, CENTRAL, 3, 5, 5>>();
+}
+
+TEST(NumericDiffCostFunction, Ownership) {
+  EasyFunctor functor;
+  {
+    NumericDiffCostFunction<EasyFunctor, CENTRAL, 3, 5, 5> cost_function(
+        &functor, DO_NOT_TAKE_OWNERSHIP);
+    double parameters_data[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    double* parameters[2] = {parameters_data, parameters_data + 5};
+    double residuals[3];
+    cost_function.Evaluate(parameters, residuals, nullptr);
+  }
+}
+
+}  // namespace ceres::internal

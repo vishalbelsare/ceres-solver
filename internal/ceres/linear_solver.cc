@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,8 @@
 
 #include <memory>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "ceres/cgnr_solver.h"
 #include "ceres/dense_normal_cholesky_solver.h"
 #include "ceres/dense_qr_solver.h"
@@ -41,10 +43,8 @@
 #include "ceres/schur_complement_solver.h"
 #include "ceres/sparse_normal_cholesky_solver.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 LinearSolver::~LinearSolver() = default;
 
@@ -77,8 +77,15 @@ std::unique_ptr<LinearSolver> LinearSolver::Create(
   CHECK(options.context != nullptr);
 
   switch (options.type) {
-    case CGNR:
+    case CGNR: {
+#ifndef CERES_NO_CUDA
+      if (options.sparse_linear_algebra_library_type == CUDA_SPARSE) {
+        std::string error;
+        return CudaCgnrSolver::Create(options, &error);
+      }
+#endif
       return std::make_unique<CgnrSolver>(options);
+    } break;
 
     case SPARSE_NORMAL_CHOLESKY:
 #if defined(CERES_NO_SPARSE)
@@ -120,5 +127,4 @@ std::unique_ptr<LinearSolver> LinearSolver::Create(
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

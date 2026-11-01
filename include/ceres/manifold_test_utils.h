@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2025 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,38 +28,72 @@
 //
 // Author: sameeragarwal@google.com (Sameer Agarwal)
 
-#include <cmath>
-#include <limits>
-#include <memory>
+#ifndef CERES_PUBLIC_MANIFOLD_TEST_UTILS_H_
+#define CERES_PUBLIC_MANIFOLD_TEST_UTILS_H_
 
+#include <algorithm>
+#include <type_traits>
+
+#include "Eigen/Core"
 #include "ceres/dynamic_numeric_diff_cost_function.h"
-#include "ceres/internal/eigen.h"
+#include "ceres/eigen.h"
 #include "ceres/manifold.h"
 #include "ceres/numeric_diff_options.h"
 #include "ceres/types.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+
 namespace ceres {
 
-// Matchers and macros for help with testing Manifold objects.
+// Matchers and macros to simplify testing of custom Manifold objects using the
+// gtest testing framework.
 //
 // Testing a Manifold has two parts.
 //
-// 1. Checking that Manifold::Plus is correctly defined. This requires per
-// manifold tests.
+// 1. Checking that Manifold::Plus() and Manifold::Minus() are correctly
+//    defined. This requires per-manifold tests.
 //
 // 2. The other methods of the manifold have mathematical properties that make
-// it compatible with Plus, as described in:
+//    them compatible with Plus() and Minus(), as described in [1].
 //
-// "Integrating Generic Sensor Fusion Algorithms with Sound State
-// Representations through Encapsulation of Manifolds"
-// By C. Hertzberg, R. Wagner, U. Frese and L. Schroder
-// https://arxiv.org/pdf/1107.1119.pdf
+// To verify these general requirements for a custom Manifold, use the
+// EXPECT_THAT_MANIFOLD_INVARIANTS_HOLD() macro from within a gtest test. Note
+// that additional domain-specific tests may also be prudent, e.g. to verify the
+// behaviour of a Quaternion Manifold about pi.
 //
-// These tests are implemented using generic matchers defined below which can
-// all be called by the macro EXPECT_THAT_MANIFOLD_INVARIANTS_HOLD(manifold, x,
-// delta, y, tolerance). See manifold_test.cc for example usage.
+// [1] "Integrating Generic Sensor Fusion Algorithms with Sound State
+//     Representations through Encapsulation of Manifolds", C. Hertzberg,
+//     R. Wagner, U. Frese and L. Schroder, https://arxiv.org/pdf/1107.1119.pdf
+
+// Verifies the general requirements for a custom Manifold are satisfied to
+// within the specified (numerical) tolerance.
+//
+// Example usage for a custom Manifold: ExampleManifold:
+//
+//    TEST(ExampleManifold, ManifoldInvariantsHold) {
+//      constexpr double kTolerance = 1.0e-9;
+//      ExampleManifold manifold;
+//      ceres::Vector x = ceres::Vector::Zero(manifold.AmbientSize());
+//      ceres::Vector y = ceres::Vector::Zero(manifold.AmbientSize());
+//      ceres::Vector delta = ceres::Vector::Zero(manifold.TangentSize());
+//      EXPECT_THAT_MANIFOLD_INVARIANTS_HOLD(manifold, x, delta, y, kTolerance);
+//    }
+#define EXPECT_THAT_MANIFOLD_INVARIANTS_HOLD(manifold, x, delta, y, tolerance) \
+  ::ceres::Vector zero_tangent =                                               \
+      ::ceres::Vector::Zero(manifold.TangentSize());                           \
+  EXPECT_THAT(manifold, ::ceres::XPlusZeroIsXAt(x, tolerance));                \
+  EXPECT_THAT(manifold, ::ceres::XMinusXIsZeroAt(x, tolerance));               \
+  EXPECT_THAT(manifold, ::ceres::MinusPlusIsIdentityAt(x, delta, tolerance));  \
+  EXPECT_THAT(manifold,                                                        \
+              ::ceres::MinusPlusIsIdentityAt(x, zero_tangent, tolerance));     \
+  EXPECT_THAT(manifold, ::ceres::PlusMinusIsIdentityAt(x, x, tolerance));      \
+  EXPECT_THAT(manifold, ::ceres::PlusMinusIsIdentityAt(x, y, tolerance));      \
+  EXPECT_THAT(manifold, ::ceres::HasCorrectPlusJacobianAt(x, tolerance));      \
+  EXPECT_THAT(manifold, ::ceres::HasCorrectMinusJacobianAt(x, tolerance));     \
+  EXPECT_THAT(manifold, ::ceres::MinusPlusJacobianIsIdentityAt(x, tolerance)); \
+  EXPECT_THAT(manifold,                                                        \
+              ::ceres::HasCorrectRightMultiplyByPlusJacobianAt(x, tolerance));
 
 // Checks that the invariant Plus(x, 0) == x holds.
 MATCHER_P2(XPlusZeroIsXAt, x, tolerance, "") {
@@ -68,8 +102,11 @@ MATCHER_P2(XPlusZeroIsXAt, x, tolerance, "") {
 
   Vector actual = Vector::Zero(ambient_size);
   Vector zero = Vector::Zero(tangent_size);
-  EXPECT_TRUE(arg.Plus(x.data(), zero.data(), actual.data()));
-  const double n = (actual - x).norm();
+  if (!arg.Plus(x.data(), zero.data(), actual.data())) {
+    *result_listener << "\nPlus() returned false";
+    return false;
+  }
+  const double n = (actual - Vector{x}).norm();
   const double d = x.norm();
   const double diffnorm = (d == 0.0) ? n : (n / d);
   if (diffnorm > tolerance) {
@@ -85,7 +122,10 @@ MATCHER_P2(XPlusZeroIsXAt, x, tolerance, "") {
 MATCHER_P2(XMinusXIsZeroAt, x, tolerance, "") {
   const int tangent_size = arg.TangentSize();
   Vector actual = Vector::Zero(tangent_size);
-  EXPECT_TRUE(arg.Minus(x.data(), x.data(), actual.data()));
+  if (!arg.Minus(x.data(), x.data(), actual.data())) {
+    *result_listener << "\nMinus() returned false";
+    return false;
+  }
   const double diffnorm = actual.norm();
   if (diffnorm > tolerance) {
     *result_listener << "\nx: " << x.transpose()  //
@@ -131,11 +171,16 @@ MATCHER_P2(HasCorrectPlusJacobianAt, x, tolerance, "") {
   Matrix expected = Matrix::Zero(ambient_size, tangent_size);
   double* jacobians[1] = {expected.data()};
 
-  EXPECT_TRUE(
-      cost_function.Evaluate(parameters, x_plus_zero.data(), jacobians));
+  if (!cost_function.Evaluate(parameters, x_plus_zero.data(), jacobians)) {
+    *result_listener << "\ncost_function.Evaluate() returned false";
+    return false;
+  }
 
   Matrix actual = Matrix::Random(ambient_size, tangent_size);
-  EXPECT_TRUE(arg.PlusJacobian(x.data(), actual.data()));
+  if (!arg.PlusJacobian(x.data(), actual.data())) {
+    *result_listener << "\nPlusJacobian() returned false";
+    return false;
+  }
 
   const double n = (actual - expected).norm();
   const double d = expected.norm();
@@ -155,11 +200,17 @@ MATCHER_P3(MinusPlusIsIdentityAt, x, delta, tolerance, "") {
   const int ambient_size = arg.AmbientSize();
   const int tangent_size = arg.TangentSize();
   Vector x_plus_delta = Vector::Zero(ambient_size);
-  EXPECT_TRUE(arg.Plus(x.data(), delta.data(), x_plus_delta.data()));
+  if (!arg.Plus(x.data(), delta.data(), x_plus_delta.data())) {
+    *result_listener << "\nPlus() returned false";
+    return false;
+  }
   Vector actual = Vector::Zero(tangent_size);
-  EXPECT_TRUE(arg.Minus(x_plus_delta.data(), x.data(), actual.data()));
+  if (!arg.Minus(x_plus_delta.data(), x.data(), actual.data())) {
+    *result_listener << "\nMinus() returned false";
+    return false;
+  }
 
-  const double n = (actual - delta).norm();
+  const double n = (actual - Vector{delta}).norm();
   const double d = delta.norm();
   const double diffnorm = (d == 0.0) ? n : (n / d);
   if (diffnorm > tolerance) {
@@ -179,21 +230,64 @@ MATCHER_P3(PlusMinusIsIdentityAt, x, y, tolerance, "") {
   const int tangent_size = arg.TangentSize();
 
   Vector y_minus_x = Vector::Zero(tangent_size);
-  EXPECT_TRUE(arg.Minus(y.data(), x.data(), y_minus_x.data()));
+  if (!arg.Minus(y.data(), x.data(), y_minus_x.data())) {
+    *result_listener << "\nMinus() returned false";
+    return false;
+  }
 
   Vector actual = Vector::Zero(ambient_size);
-  EXPECT_TRUE(arg.Plus(x.data(), y_minus_x.data(), actual.data()));
-
-  const double n = (actual - y).norm();
-  const double d = y.norm();
-  const double diffnorm = (d == 0.0) ? n : (n / d);
-  if (diffnorm > tolerance) {
-    *result_listener << "\nx: " << x.transpose()
-                     << "\nexpected: " << y.transpose()
-                     << "\nactual:" << actual.transpose()
-                     << "\ndiff:" << (y - actual).transpose()
-                     << "\ndiffnorm: " << diffnorm;
+  if (!arg.Plus(x.data(), y_minus_x.data(), actual.data())) {
+    *result_listener << "\nPlus() returned false";
     return false;
+  }
+
+  using ManifoldType = std::decay_t<decltype(arg)>;
+
+  constexpr bool kIsCeresQuaternion =
+      std::is_same_v<ManifoldType, ceres::QuaternionManifold>;
+  constexpr bool kIsEigenQuaternion =
+      std::is_same_v<ManifoldType, ceres::EigenQuaternionManifold>;
+
+  if constexpr (!(kIsEigenQuaternion || kIsCeresQuaternion)) {
+    const double n = (actual - Vector{y}).norm();
+    const double d = y.norm();
+    const double diffnorm = (d == 0.0) ? n : (n / d);
+    if (diffnorm > tolerance) {
+      *result_listener << "\nx: " << x.transpose()
+                       << "\nexpected: " << y.transpose()
+                       << "\nactual: " << actual.transpose()
+                       << "\ndiff: " << (y - actual).transpose()
+                       << "\ndiffnorm: " << diffnorm;
+      return false;
+    }
+  } else {
+    // Quaternions are equivalent up to a sign change. Compute the algebraic
+    // distance by taking the minimum of |x+y| and |x-y| where |∘| is the L²
+    // norm. For more details, refer to
+    //
+    //   Hartley, R., Trumpf, J., Dai, Y., & Li, H. (2013). Rotation Averaging.
+    //   International Journal of Computer Vision, 103(3), 267–305.
+    //   https://doi.org/10.1007/s11263-012-0601-0
+    //
+    // The computation here is closely related to the IsNearQuaternion matcher
+    // used in rotation_test.cc. The matcher, however, does not compute the
+    // distance but only compares the coefficients.
+    const Eigen::Vector4d plus = actual + Vector{y};
+    const Eigen::Vector4d minus = actual - Vector{y};
+
+    const double plus_norm = plus.norm();
+    const double minus_norm = minus.norm();
+    const double diffnorm = std::min(plus_norm, minus_norm);
+
+    if (diffnorm > tolerance) {
+      *result_listener << "\nx: " << x.transpose()
+                       << "\nexpected: " << y.transpose()
+                       << "\nactual: " << actual.transpose()
+                       << "\ndiff +: " << plus.transpose()
+                       << "\ndiff -: " << minus.transpose()
+                       << "\ndiffnorm: " << diffnorm;
+      return false;
+    }
   }
   return true;
 }
@@ -232,10 +326,16 @@ MATCHER_P2(HasCorrectMinusJacobianAt, x, tolerance, "") {
   Matrix expected = Matrix::Zero(tangent_size, ambient_size);
   double* jacobians[1] = {expected.data()};
 
-  EXPECT_TRUE(cost_function.Evaluate(parameters, y_minus_x.data(), jacobians));
+  if (!cost_function.Evaluate(parameters, y_minus_x.data(), jacobians)) {
+    *result_listener << "\ncost_function.Evaluate() returned false";
+    return false;
+  }
 
   Matrix actual = Matrix::Random(tangent_size, ambient_size);
-  EXPECT_TRUE(arg.MinusJacobian(x.data(), actual.data()));
+  if (!arg.MinusJacobian(x.data(), actual.data())) {
+    *result_listener << "\nMinusJacobian() returned false";
+    return false;
+  }
 
   const double n = (actual - expected).norm();
   const double d = expected.norm();
@@ -257,9 +357,15 @@ MATCHER_P2(MinusPlusJacobianIsIdentityAt, x, tolerance, "") {
   const int tangent_size = arg.TangentSize();
 
   Matrix plus_jacobian(ambient_size, tangent_size);
-  EXPECT_TRUE(arg.PlusJacobian(x.data(), plus_jacobian.data()));
+  if (!arg.PlusJacobian(x.data(), plus_jacobian.data())) {
+    *result_listener << "\nPlusJacobian() returned false";
+    return false;
+  }
   Matrix minus_jacobian(tangent_size, ambient_size);
-  EXPECT_TRUE(arg.MinusJacobian(x.data(), minus_jacobian.data()));
+  if (!arg.MinusJacobian(x.data(), minus_jacobian.data())) {
+    *result_listener << "\nMinusJacobian() returned false";
+    return false;
+  }
 
   const Matrix actual = minus_jacobian * plus_jacobian;
   const Matrix expected = Matrix::Identity(tangent_size, tangent_size);
@@ -288,14 +394,20 @@ MATCHER_P2(HasCorrectRightMultiplyByPlusJacobianAt, x, tolerance, "") {
   constexpr int kMaxNumRows = 3;
   for (int num_rows = kMinNumRows; num_rows <= kMaxNumRows; ++num_rows) {
     Matrix plus_jacobian = Matrix::Random(ambient_size, tangent_size);
-    EXPECT_TRUE(arg.PlusJacobian(x.data(), plus_jacobian.data()));
+    if (!arg.PlusJacobian(x.data(), plus_jacobian.data())) {
+      *result_listener << "\nPlusJacobian() returned false";
+      return false;
+    }
 
     Matrix ambient_matrix = Matrix::Random(num_rows, ambient_size);
     Matrix expected = ambient_matrix * plus_jacobian;
 
     Matrix actual = Matrix::Random(num_rows, tangent_size);
-    EXPECT_TRUE(arg.RightMultiplyByPlusJacobian(
-        x.data(), num_rows, ambient_matrix.data(), actual.data()));
+    if (!arg.RightMultiplyByPlusJacobian(
+            x.data(), num_rows, ambient_matrix.data(), actual.data())) {
+      *result_listener << "\nRightMultiplyByPlusJacobian() returned false";
+      return false;
+    }
     const double n = (actual - expected).norm();
     const double d = expected.norm();
     const double diffnorm = (d == 0.0) ? n : (n / d);
@@ -312,17 +424,6 @@ MATCHER_P2(HasCorrectRightMultiplyByPlusJacobianAt, x, tolerance, "") {
   return true;
 }
 
-#define EXPECT_THAT_MANIFOLD_INVARIANTS_HOLD(manifold, x, delta, y, tolerance) \
-  Vector zero_tangent = Vector::Zero(manifold.TangentSize());                  \
-  EXPECT_THAT(manifold, XPlusZeroIsXAt(x, tolerance));                         \
-  EXPECT_THAT(manifold, XMinusXIsZeroAt(x, tolerance));                        \
-  EXPECT_THAT(manifold, MinusPlusIsIdentityAt(x, delta, tolerance));           \
-  EXPECT_THAT(manifold, MinusPlusIsIdentityAt(x, zero_tangent, tolerance));    \
-  EXPECT_THAT(manifold, PlusMinusIsIdentityAt(x, x, tolerance));               \
-  EXPECT_THAT(manifold, PlusMinusIsIdentityAt(x, y, tolerance));               \
-  EXPECT_THAT(manifold, HasCorrectPlusJacobianAt(x, tolerance));               \
-  EXPECT_THAT(manifold, HasCorrectMinusJacobianAt(x, tolerance));              \
-  EXPECT_THAT(manifold, MinusPlusJacobianIsIdentityAt(x, tolerance));          \
-  EXPECT_THAT(manifold, HasCorrectRightMultiplyByPlusJacobianAt(x, tolerance));
-
 }  // namespace ceres
+
+#endif  // CERES_PUBLIC_MANIFOLD_TEST_UTILS_H_

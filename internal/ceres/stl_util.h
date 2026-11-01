@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -59,8 +59,8 @@ void STLDeleteContainerPointers(ForwardIterator begin, ForwardIterator end) {
 template <class ForwardIterator>
 void STLDeleteUniqueContainerPointers(ForwardIterator begin,
                                       ForwardIterator end) {
-  sort(begin, end);
-  ForwardIterator new_end = unique(begin, end);
+  std::sort(begin, end);
+  ForwardIterator new_end = std::unique(begin, end);
   while (begin != new_end) {
     ForwardIterator temp = begin;
     ++begin;

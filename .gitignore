@@ -22,7 +22,9 @@ obj/
 jni/libs/
 .buildinfo
 bazel-*
+MODULE.bazel.lock
 *.pyc
+.idea*
 
-cmake-build
+cmake-build*
 small-blas-benchmarks

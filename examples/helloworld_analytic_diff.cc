@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,20 +34,14 @@
 
 #include <vector>
 
+#include "absl/log/initialize.h"
 #include "ceres/ceres.h"
-#include "glog/logging.h"
-
-using ceres::CostFunction;
-using ceres::Problem;
-using ceres::SizedCostFunction;
-using ceres::Solve;
-using ceres::Solver;
 
 // A CostFunction implementing analytically derivatives for the
 // function f(x) = 10 - x.
 class QuadraticCostFunction
-    : public SizedCostFunction<1 /* number of residuals */,
-                               1 /* size of first parameter */> {
+    : public ceres::SizedCostFunction<1 /* number of residuals */,
+                                      1 /* size of first parameter */> {
  public:
   bool Evaluate(double const* const* parameters,
                 double* residuals,
@@ -78,7 +72,7 @@ class QuadraticCostFunction
 };
 
 int main(int argc, char** argv) {
-  google::InitGoogleLogging(argv[0]);
+  absl::InitializeLog();
 
   // The variable to solve for with its initial value. It will be
   // mutated in place by the solver.
@@ -86,17 +80,17 @@ int main(int argc, char** argv) {
   const double initial_x = x;
 
   // Build the problem.
-  Problem problem;
+  ceres::Problem problem;
 
   // Set up the only cost function (also known as residual).
-  CostFunction* cost_function = new QuadraticCostFunction;
+  ceres::CostFunction* cost_function = new QuadraticCostFunction;
   problem.AddResidualBlock(cost_function, nullptr, &x);
 
   // Run the solver!
-  Solver::Options options;
+  ceres::Solver::Options options;
   options.minimizer_progress_to_stdout = true;
-  Solver::Summary summary;
-  Solve(options, &problem, &summary);
+  ceres::Solver::Summary summary;
+  ceres::Solve(options, &problem, &summary);
 
   std::cout << summary.BriefReport() << "\n";
   std::cout << "x : " << initial_x << " -> " << x << "\n";

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,9 +32,9 @@
 
 #include <cstddef>
 #include <memory>
-#include <unordered_set>
 #include <vector>
 
+#include "absl/container/flat_hash_set.h"
 #include "ceres/cost_function.h"
 #include "ceres/graph.h"
 #include "ceres/problem_impl.h"
@@ -43,10 +43,9 @@
 #include "ceres/stl_util.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
-using VertexSet = std::unordered_set<ParameterBlock*>;
+using VertexSet = absl::flat_hash_set<ParameterBlock*>;
 
 template <int M, int... Ns>
 class DummyCostFunction : public SizedCostFunction<M, Ns...> {
@@ -175,5 +174,4 @@ TEST_F(SchurOrderingTest, OneFixed) {
   EXPECT_EQ(ordering.back(), parameter_blocks[0]);
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

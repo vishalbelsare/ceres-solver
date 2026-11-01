@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2021 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,8 @@
 
 #include "ceres/parameter_block.h"
 
-#include "ceres/internal/eigen.h"
+#include "absl/log/log.h"
+#include "ceres/eigen.h"
 #include "gtest/gtest.h"
 
 namespace ceres {

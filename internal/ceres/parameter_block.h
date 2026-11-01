@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2021 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -37,18 +37,18 @@
 #include <limits>
 #include <memory>
 #include <string>
-#include <unordered_set>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_format.h"
 #include "ceres/array_utils.h"
+#include "ceres/eigen.h"
 #include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/eigen.h"
 #include "ceres/internal/export.h"
 #include "ceres/manifold.h"
-#include "ceres/stringprintf.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 class ProblemImpl;
 class ResidualBlock;
@@ -64,22 +64,22 @@ class ResidualBlock;
 // proper disposal of the manifold.
 class CERES_NO_EXPORT ParameterBlock {
  public:
-  using ResidualBlockSet = std::unordered_set<ResidualBlock*>;
+  using ResidualBlockSet = absl::flat_hash_set<ResidualBlock*>;
 
   // Create a parameter block with the user state, size, and index specified.
   // The size is the size of the parameter block and the index is the position
   // of the parameter block inside a Program (if any).
   ParameterBlock(double* user_state, int size, int index)
-      : user_state_(user_state),
-        size_(size),
+      : size_(size),
         state_(user_state),
-        index_(index) {}
+        index_(index),
+        user_state_(user_state) {}
 
   ParameterBlock(double* user_state, int size, int index, Manifold* manifold)
-      : user_state_(user_state),
-        size_(size),
+      : size_(size),
         state_(user_state),
-        index_(index) {
+        index_(index),
+        user_state_(user_state) {
     if (manifold != nullptr) {
       SetManifold(manifold);
     }
@@ -236,13 +236,16 @@ class CERES_NO_EXPORT ParameterBlock {
     }
 
     // Project onto the box constraints.
-    if (lower_bounds_.get() != nullptr) {
+    if (lower_bounds_ && upper_bounds_) {
+      for (int i = 0; i < size_; ++i) {
+        x_plus_delta[i] =
+            std::clamp(x_plus_delta[i], lower_bounds_[i], upper_bounds_[i]);
+      }
+    } else if (lower_bounds_) {
       for (int i = 0; i < size_; ++i) {
         x_plus_delta[i] = std::max(x_plus_delta[i], lower_bounds_[i]);
       }
-    }
-
-    if (upper_bounds_.get() != nullptr) {
+    } else if (upper_bounds_) {
       for (int i = 0; i < size_; ++i) {
         x_plus_delta[i] = std::min(x_plus_delta[i], upper_bounds_[i]);
       }
@@ -252,7 +255,7 @@ class CERES_NO_EXPORT ParameterBlock {
   }
 
   std::string ToString() const {
-    return StringPrintf(
+    return absl::StrFormat(
         "{ this=%p, user_state=%p, state=%p, size=%d, "
         "constant=%d, index=%d, state_offset=%d, "
         "delta_offset=%d }",
@@ -339,11 +342,8 @@ class CERES_NO_EXPORT ParameterBlock {
     return true;
   }
 
-  double* user_state_ = nullptr;
-  int size_ = -1;
   bool is_set_constant_ = false;
-  Manifold* manifold_ = nullptr;
-
+  int size_ = -1;
   // The "state" of the parameter. These fields are only needed while the
   // solver is running. While at first glance using mutable is a bad idea, this
   // ends up simplifying the internals of Ceres enough to justify the potential
@@ -351,18 +351,16 @@ class CERES_NO_EXPORT ParameterBlock {
   mutable const double* state_ = nullptr;
   mutable std::unique_ptr<double[]> plus_jacobian_;
 
-  // The index of the parameter. This is used by various other parts of Ceres to
-  // permit switching from a ParameterBlock* to an index in another array.
-  int index_ = -1;
-
+  Manifold* manifold_ = nullptr;
   // The offset of this parameter block inside a larger state vector.
   int state_offset_ = -1;
 
   // The offset of this parameter block inside a larger delta vector.
   int delta_offset_ = -1;
 
-  // If non-null, contains the residual blocks this parameter block is in.
-  std::unique_ptr<ResidualBlockSet> residual_blocks_;
+  // The index of the parameter. This is used by various other parts of Ceres to
+  // permit switching from a ParameterBlock* to an index in another array.
+  int index_ = -1;
 
   // Upper and lower bounds for the parameter block.  SetUpperBound
   // and SetLowerBound lazily initialize the upper_bounds_ and
@@ -378,12 +376,15 @@ class CERES_NO_EXPORT ParameterBlock {
   std::unique_ptr<double[]> upper_bounds_;
   std::unique_ptr<double[]> lower_bounds_;
 
+  // If non-null, contains the residual blocks this parameter block is in.
+  std::unique_ptr<ResidualBlockSet> residual_blocks_;
+  double* user_state_ = nullptr;
+
   // Necessary so ProblemImpl can clean up the manifolds.
   friend class ProblemImpl;
 };
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #include "ceres/internal/reenable_warnings.h"
 

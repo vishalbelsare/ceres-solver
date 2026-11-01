@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2020 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://code.google.com/p/ceres-solver/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,49 +31,65 @@
 
 #include "ceres/internal/array_selector.h"
 
+#include <array>
+#include <type_traits>
+
+#include "absl/container/fixed_array.h"
+#include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
-// This test only checks, if the correct array implementations are selected. The
-// test for FixedArray is in fixed_array_test.cc. Tests for std::array and
-// std::vector are not included in ceres.
+// This test only checks if the correct array implementations are selected.
 TEST(ArraySelector, FixedArray) {
   ArraySelector<int, DYNAMIC, 20> array1(10);
   static_assert(
-      std::is_base_of<internal::FixedArray<int, 20>, decltype(array1)>::value,
-      "");
+      std::is_base_of<absl::FixedArray<int, 20>, decltype(array1)>::value);
   EXPECT_EQ(array1.size(), 10);
 
   ArraySelector<int, DYNAMIC, 10> array2(20);
   static_assert(
-      std::is_base_of<internal::FixedArray<int, 10>, decltype(array2)>::value,
-      "");
+      std::is_base_of<absl::FixedArray<int, 10>, decltype(array2)>::value);
   EXPECT_EQ(array2.size(), 20);
 }
 
 TEST(ArraySelector, Array) {
   ArraySelector<int, 10, 20> array1(10);
-  static_assert(std::is_base_of<std::array<int, 10>, decltype(array1)>::value,
-                "");
+  static_assert(std::is_base_of<std::array<int, 10>, decltype(array1)>::value);
   EXPECT_EQ(array1.size(), 10);
 
   ArraySelector<int, 20, 20> array2(20);
-  static_assert(std::is_base_of<std::array<int, 20>, decltype(array2)>::value,
-                "");
+  static_assert(std::is_base_of<std::array<int, 20>, decltype(array2)>::value);
   EXPECT_EQ(array2.size(), 20);
 }
 
-TEST(ArraySelector, Vector) {
+TEST(ArraySelector, HeapFixedArray) {
   ArraySelector<int, 20, 10> array1(20);
-  static_assert(std::is_base_of<std::vector<int>, decltype(array1)>::value, "");
+  static_assert(
+      std::is_base_of<absl::FixedArray<int, 0>, decltype(array1)>::value);
   EXPECT_EQ(array1.size(), 20);
 
   ArraySelector<int, 1, 0> array2(1);
-  static_assert(std::is_base_of<std::vector<int>, decltype(array2)>::value, "");
+  static_assert(
+      std::is_base_of<absl::FixedArray<int, 0>, decltype(array2)>::value);
   EXPECT_EQ(array2.size(), 1);
 }
 
-}  // namespace internal
-}  // namespace ceres
+TEST(ArraySelector, FillConstructor) {
+  ArraySelector<int, DYNAMIC, 20> array1(10, 42);
+  for (int v : array1) {
+    EXPECT_EQ(v, 42);
+  }
+
+  ArraySelector<int, 10, 20> array2(10, -7);
+  for (int v : array2) {
+    EXPECT_EQ(v, -7);
+  }
+
+  ArraySelector<int, 20, 10> array3(20, 99);
+  for (int v : array3) {
+    EXPECT_EQ(v, 99);
+  }
+}
+
+}  // namespace ceres::internal

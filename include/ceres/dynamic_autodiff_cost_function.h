@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,13 +35,15 @@
 #include <cmath>
 #include <memory>
 #include <numeric>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
+#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
 #include "ceres/dynamic_cost_function.h"
-#include "ceres/internal/fixed_array.h"
 #include "ceres/jet.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
 namespace ceres {
 
@@ -65,8 +67,7 @@ namespace ceres {
 // also specify the sizes after creating the dynamic autodiff cost
 // function. For example:
 //
-//   DynamicAutoDiffCostFunction<MyCostFunctor, 3> cost_function(
-//       new MyCostFunctor());
+//   DynamicAutoDiffCostFunction<MyCostFunctor, 3> cost_function;
 //   cost_function.AddParameterBlock(5);
 //   cost_function.AddParameterBlock(10);
 //   cost_function.SetNumResiduals(21);
@@ -79,13 +80,40 @@ namespace ceres {
 template <typename CostFunctor, int Stride = 4>
 class DynamicAutoDiffCostFunction final : public DynamicCostFunction {
  public:
+  // Takes ownership of functor by default.
+  explicit DynamicAutoDiffCostFunction(std::unique_ptr<CostFunctor> functor)
+      : DynamicAutoDiffCostFunction(std::move(functor), TAKE_OWNERSHIP) {
+    static_assert(Stride > 0, "Stride must be positive");
+  }
+
+  // Constructs the CostFunctor on the heap and takes ownership.
+  template <typename... Args,
+            typename = std::enable_if_t<
+                std::is_constructible_v<CostFunctor, Args&&...>>>
+  explicit DynamicAutoDiffCostFunction(Args&&... args)
+      // NOTE We explicitly use direct initialization using parentheses instead
+      // of uniform initialization using braces to avoid narrowing conversion
+      // warnings.
+      : DynamicAutoDiffCostFunction(
+            std::make_unique<CostFunctor>(std::forward<Args>(args)...),
+            TAKE_OWNERSHIP) {}
+
   // Takes ownership by default.
   explicit DynamicAutoDiffCostFunction(CostFunctor* functor,
                                        Ownership ownership = TAKE_OWNERSHIP)
-      : functor_(functor), ownership_(ownership) {}
+      : DynamicAutoDiffCostFunction(std::unique_ptr<CostFunctor>(functor),
+                                    ownership) {
+    static_assert(Stride > 0, "Stride must be positive");
+  }
 
-  DynamicAutoDiffCostFunction(DynamicAutoDiffCostFunction&& other)
-      : functor_(std::move(other.functor_)), ownership_(other.ownership_) {}
+  DynamicAutoDiffCostFunction(const DynamicAutoDiffCostFunction& other) =
+      delete;
+  DynamicAutoDiffCostFunction& operator=(
+      const DynamicAutoDiffCostFunction& other) = delete;
+  DynamicAutoDiffCostFunction(DynamicAutoDiffCostFunction&& other) noexcept =
+      default;
+  DynamicAutoDiffCostFunction& operator=(
+      DynamicAutoDiffCostFunction&& other) noexcept = default;
 
   ~DynamicAutoDiffCostFunction() override {
     // Manually release pointer if configured to not take ownership
@@ -119,7 +147,7 @@ class DynamicAutoDiffCostFunction final : public DynamicCostFunction {
     // depends on.
     //
     // To work around this issue, the solution here is to evaluate the
-    // jacobians in a series of passes, each one computing Stride *
+    // Jacobians in a series of passes, each one computing Stride *
     // num_residuals() derivatives. This is done with small, fixed-size jets.
     const int num_parameter_blocks =
         static_cast<int>(parameter_block_sizes().size());
@@ -128,14 +156,13 @@ class DynamicAutoDiffCostFunction final : public DynamicCostFunction {
 
     // Allocate scratch space for the strided evaluation.
     using JetT = Jet<double, Stride>;
-    internal::FixedArray<JetT, (256 * 7) / sizeof(JetT)> input_jets(
-        num_parameters);
-    internal::FixedArray<JetT, (256 * 7) / sizeof(JetT)> output_jets(
+    absl::FixedArray<JetT, (256 * 7) / sizeof(JetT)> input_jets(num_parameters);
+    absl::FixedArray<JetT, (256 * 7) / sizeof(JetT)> output_jets(
         num_residuals());
 
     // Make the parameter pack that is sent to the functor (reused).
-    internal::FixedArray<Jet<double, Stride>*> jet_parameters(
-        num_parameter_blocks, nullptr);
+    absl::FixedArray<Jet<double, Stride>*> jet_parameters(num_parameter_blocks,
+                                                          nullptr);
     int num_active_parameters = 0;
 
     // To handle constant parameters between non-constant parameter blocks, the
@@ -225,7 +252,7 @@ class DynamicAutoDiffCostFunction final : public DynamicCostFunction {
         return false;
       }
 
-      // Copy the pieces of the jacobians into their final place.
+      // Copy the pieces of the Jacobians into their final place.
       active_parameter_count = 0;
 
       current_derivative_section = initial_derivative_section;
@@ -264,10 +291,33 @@ class DynamicAutoDiffCostFunction final : public DynamicCostFunction {
     return true;
   }
 
+  const CostFunctor& functor() const { return *functor_; }
+
  private:
+  explicit DynamicAutoDiffCostFunction(std::unique_ptr<CostFunctor> functor,
+                                       Ownership ownership)
+      : functor_(std::move(functor)), ownership_(ownership) {}
+
   std::unique_ptr<CostFunctor> functor_;
   Ownership ownership_;
 };
+
+// Deduction guide that allows the user to avoid explicitly specifying the
+// template parameter of DynamicAutoDiffCostFunction. The class can instead be
+// instantiated as follows:
+//
+//   new DynamicAutoDiffCostFunction{new MyCostFunctor{}};
+//   new DynamicAutoDiffCostFunction{std::make_unique<MyCostFunctor>()};
+//
+template <typename CostFunctor>
+DynamicAutoDiffCostFunction(CostFunctor* functor)
+    -> DynamicAutoDiffCostFunction<CostFunctor>;
+template <typename CostFunctor>
+DynamicAutoDiffCostFunction(CostFunctor* functor, Ownership ownership)
+    -> DynamicAutoDiffCostFunction<CostFunctor>;
+template <typename CostFunctor>
+DynamicAutoDiffCostFunction(std::unique_ptr<CostFunctor> functor)
+    -> DynamicAutoDiffCostFunction<CostFunctor>;
 
 }  // namespace ceres
 

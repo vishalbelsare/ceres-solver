@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,21 +30,27 @@
 
 #include "ceres/reorder_program.h"
 
+#include <algorithm>
+#include <memory>
 #include <random>
+#include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "ceres/internal/config.h"
+#include "ceres/ordered_groups.h"
 #include "ceres/parameter_block.h"
+#include "ceres/problem.h"
 #include "ceres/problem_impl.h"
 #include "ceres/program.h"
 #include "ceres/sized_cost_function.h"
 #include "ceres/solver.h"
+#include "ceres/types.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
-
-using std::vector;
 
 // Templated base class for the CostFunction signatures.
 template <int kNumResiduals, int... Ns>
@@ -62,7 +68,7 @@ class UnaryCostFunction : public MockCostFunctionBase<2, 1> {};
 class BinaryCostFunction : public MockCostFunctionBase<2, 1, 1> {};
 class TernaryCostFunction : public MockCostFunctionBase<2, 1, 1, 1> {};
 
-TEST(_, ReorderResidualBlockNormalFunction) {
+TEST(ReorderProgram, ReorderResidualBlockNormalFunction) {
   ProblemImpl problem;
   double x;
   double y;
@@ -88,10 +94,10 @@ TEST(_, ReorderResidualBlockNormalFunction) {
   options.linear_solver_type = DENSE_SCHUR;
   options.linear_solver_ordering = linear_solver_ordering;
 
-  const vector<ResidualBlock*>& residual_blocks =
+  const std::vector<ResidualBlock*>& residual_blocks =
       problem.program().residual_blocks();
 
-  vector<ResidualBlock*> expected_residual_blocks;
+  std::vector<ResidualBlock*> expected_residual_blocks;
 
   // This is a bit fragile, but it serves the purpose. We know the
   // bucketing algorithm that the reordering function uses, so we
@@ -116,7 +122,7 @@ TEST(_, ReorderResidualBlockNormalFunction) {
   }
 }
 
-TEST(_, ApplyOrderingOrderingTooSmall) {
+TEST(ReorderProgram, ApplyOrderingOrderingTooSmall) {
   ProblemImpl problem;
   double x;
   double y;
@@ -136,7 +142,7 @@ TEST(_, ApplyOrderingOrderingTooSmall) {
       problem.parameter_map(), linear_solver_ordering, &program, &message));
 }
 
-TEST(_, ApplyOrderingNormal) {
+TEST(ReorderProgram, ApplyOrderingNormal) {
   ProblemImpl problem;
   double x;
   double y;
@@ -156,7 +162,8 @@ TEST(_, ApplyOrderingNormal) {
 
   EXPECT_TRUE(ApplyOrdering(
       problem.parameter_map(), linear_solver_ordering, program, &message));
-  const vector<ParameterBlock*>& parameter_blocks = program->parameter_blocks();
+  const std::vector<ParameterBlock*>& parameter_blocks =
+      program->parameter_blocks();
 
   EXPECT_EQ(parameter_blocks.size(), 3);
   EXPECT_EQ(parameter_blocks[0]->user_state(), &x);
@@ -164,8 +171,75 @@ TEST(_, ApplyOrderingNormal) {
   EXPECT_EQ(parameter_blocks[2]->user_state(), &y);
 }
 
+// Test that ApplyOrdering preserves the original program order within each
+// group. This is essential for deterministic behavior - without preserving
+// the original order, the ordering would depend on pointer addresses which
+// can vary between runs due to ASLR or different memory allocation patterns.
+TEST(ReorderProgram, ApplyOrderingPreservesOrderWithinGroups) {
+  // Use heap-allocated parameter blocks to ensure pointer addresses are
+  // not in any predictable order (simulating what happens in real usage).
+  std::vector<std::unique_ptr<double[]>> params;
+  std::vector<double*> param_ptrs;
+  const int kNumParams = 10;
+
+  for (int i = 0; i < kNumParams; ++i) {
+    params.push_back(std::make_unique<double[]>(3));
+    param_ptrs.push_back(params.back().get());
+  }
+
+  // Shuffle the parameter pointers to generate non-deterministic addresses
+  // in case the allocator happens to return addresses in a specific order.
+  // We add them to the problem in a specific order, which
+  // should be preserved within each group after ApplyOrdering.
+  std::mt19937 rng(42);  // Fixed seed for reproducibility
+  std::shuffle(param_ptrs.begin(), param_ptrs.end(), rng);
+
+  ProblemImpl problem;
+
+  // Add parameter blocks in the order of their index (0, 1, 2, ..., 9)
+  // but use the original param_ptrs which may have any address ordering.
+  for (int i = 0; i < kNumParams; ++i) {
+    problem.AddParameterBlock(param_ptrs[i], 3);
+  }
+
+  // Assign parameters to groups:
+  // Group 0: params 0, 2, 4, 6, 8 (evens)
+  // Group 1: params 1, 3, 5, 7, 9 (odds)
+  ParameterBlockOrdering linear_solver_ordering;
+  for (int i = 0; i < kNumParams; ++i) {
+    linear_solver_ordering.AddElementToGroup(param_ptrs[i], i % 2);
+  }
+
+  Program* program = problem.mutable_program();
+  std::string message;
+
+  EXPECT_TRUE(ApplyOrdering(
+      problem.parameter_map(), linear_solver_ordering, program, &message));
+
+  const std::vector<ParameterBlock*>& parameter_blocks =
+      program->parameter_blocks();
+
+  EXPECT_EQ(parameter_blocks.size(), kNumParams);
+
+  // Check that group 0 elements (evens) come first and
+  // maintain their original relative order.
+  EXPECT_EQ(parameter_blocks[0]->user_state(), param_ptrs[0]);
+  EXPECT_EQ(parameter_blocks[1]->user_state(), param_ptrs[2]);
+  EXPECT_EQ(parameter_blocks[2]->user_state(), param_ptrs[4]);
+  EXPECT_EQ(parameter_blocks[3]->user_state(), param_ptrs[6]);
+  EXPECT_EQ(parameter_blocks[4]->user_state(), param_ptrs[8]);
+
+  // Check that group 1 elements (odds) come second and
+  // maintain their original relative order.
+  EXPECT_EQ(parameter_blocks[5]->user_state(), param_ptrs[1]);
+  EXPECT_EQ(parameter_blocks[6]->user_state(), param_ptrs[3]);
+  EXPECT_EQ(parameter_blocks[7]->user_state(), param_ptrs[5]);
+  EXPECT_EQ(parameter_blocks[8]->user_state(), param_ptrs[7]);
+  EXPECT_EQ(parameter_blocks[9]->user_state(), param_ptrs[9]);
+}
+
 #ifndef CERES_NO_SUITESPARSE
-class ReorderProgramFoSparseCholeskyUsingSuiteSparseTest
+class ReorderProgramForSparseCholeskyUsingSuiteSparseTest
     : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -180,16 +254,17 @@ class ReorderProgramFoSparseCholeskyUsingSuiteSparseTest
   void ComputeAndValidateOrdering(
       const ParameterBlockOrdering& linear_solver_ordering) {
     Program* program = problem_.mutable_program();
-    vector<ParameterBlock*> unordered_parameter_blocks =
+    std::vector<ParameterBlock*> unordered_parameter_blocks =
         program->parameter_blocks();
 
     std::string error;
     EXPECT_TRUE(ReorderProgramForSparseCholesky(ceres::SUITE_SPARSE,
+                                                ceres::AMD,
                                                 linear_solver_ordering,
                                                 0, /* use all rows */
                                                 program,
                                                 &error));
-    const vector<ParameterBlock*>& ordered_parameter_blocks =
+    const std::vector<ParameterBlock*>& ordered_parameter_blocks =
         program->parameter_blocks();
     EXPECT_EQ(ordered_parameter_blocks.size(),
               unordered_parameter_blocks.size());
@@ -204,7 +279,7 @@ class ReorderProgramFoSparseCholeskyUsingSuiteSparseTest
   double z_;
 };
 
-TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest,
+TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest,
        EverythingInGroupZero) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 0);
@@ -214,7 +289,7 @@ TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest,
   ComputeAndValidateOrdering(linear_solver_ordering);
 }
 
-TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest, ContiguousGroups) {
+TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest, ContiguousGroups) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 0);
   linear_solver_ordering.AddElementToGroup(&y_, 1);
@@ -223,7 +298,7 @@ TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest, ContiguousGroups) {
   ComputeAndValidateOrdering(linear_solver_ordering);
 }
 
-TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest, GroupsWithGaps) {
+TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest, GroupsWithGaps) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 0);
   linear_solver_ordering.AddElementToGroup(&y_, 2);
@@ -232,7 +307,7 @@ TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest, GroupsWithGaps) {
   ComputeAndValidateOrdering(linear_solver_ordering);
 }
 
-TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest,
+TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest,
        NonContiguousStartingAtTwo) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 2);
@@ -243,7 +318,7 @@ TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest,
 }
 #endif  // CERES_NO_SUITESPARSE
 
-TEST(_, ReorderResidualBlocksbyPartition) {
+TEST(ReorderProgram, ReorderResidualBlocksbyPartition) {
   ProblemImpl problem;
   double x;
   double y;
@@ -264,7 +339,7 @@ TEST(_, ReorderResidualBlocksbyPartition) {
   problem.GetResidualBlocks(&residual_block_ids);
   std::vector<ResidualBlock*> residual_blocks =
       problem.program().residual_blocks();
-  auto rng = std::default_random_engine{};
+  auto rng = std::mt19937{};
   for (int i = 1; i < 6; ++i) {
     std::shuffle(
         std::begin(residual_block_ids), std::end(residual_block_ids), rng);

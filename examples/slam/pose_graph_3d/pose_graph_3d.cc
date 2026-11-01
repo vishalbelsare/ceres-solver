@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2016 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,17 +32,23 @@
 #include <iostream>
 #include <string>
 
+#include "Eigen/Core"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/log/check.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
 #include "ceres/ceres.h"
 #include "common/read_g2o.h"
-#include "gflags/gflags.h"
-#include "glog/logging.h"
 #include "pose_graph_3d_error_term.h"
 #include "types.h"
 
-DEFINE_string(input, "", "The pose graph definition filename in g2o format.");
+ABSL_FLAG(std::string,
+          input,
+          "",
+          "The pose graph definition filename in g2o format.");
 
-namespace ceres {
-namespace examples {
+namespace ceres::examples {
 namespace {
 
 // Constructs the nonlinear least squares optimization problem from the pose
@@ -133,20 +139,22 @@ bool OutputPoses(const std::string& filename, const MapOfPoses& poses) {
 }
 
 }  // namespace
-}  // namespace examples
-}  // namespace ceres
+}  // namespace ceres::examples
 
 int main(int argc, char** argv) {
-  google::InitGoogleLogging(argv[0]);
-  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
-
-  CHECK(FLAGS_input != "") << "Need to specify the filename to read.";
+  absl::InitializeLog();
+  absl::ParseCommandLine(argc, argv);
+  if (absl::GetFlag(FLAGS_input).empty()) {
+    LOG(ERROR) << "Usage pose_graph_3d --input=<filename>";
+    return 1;
+  }
 
   ceres::examples::MapOfPoses poses;
   ceres::examples::VectorOfConstraints constraints;
 
-  CHECK(ceres::examples::ReadG2oFile(FLAGS_input, &poses, &constraints))
-      << "Error reading the file: " << FLAGS_input;
+  CHECK(ceres::examples::ReadG2oFile(
+      absl::GetFlag(FLAGS_input), &poses, &constraints))
+      << "Error reading the file: " << absl::GetFlag(FLAGS_input);
 
   std::cout << "Number of poses: " << poses.size() << '\n';
   std::cout << "Number of constraints: " << constraints.size() << '\n';

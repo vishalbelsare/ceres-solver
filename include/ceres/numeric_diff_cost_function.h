@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,17 +29,17 @@
 // Author: keir@google.com (Keir Mierle)
 //         sameeragarwal@google.com (Sameer Agarwal)
 //
-// Create CostFunctions as needed by the least squares framework with jacobians
+// Create CostFunctions as needed by the least squares framework with Jacobians
 // computed via numeric (a.k.a. finite) differentiation. For more details see
 // http://en.wikipedia.org/wiki/Numerical_differentiation.
 //
-// To get an numerically differentiated cost function, you must define
-// a class with a operator() (a functor) that computes the residuals.
+// To get a numerically differentiated cost function, you must define
+// a class with an operator() (a functor) that computes the residuals.
 //
 // The function must write the computed value in the last argument
 // (the only non-const one) and return true to indicate success.
 // Please see cost_function.h for details on how the return value
-// maybe used to impose simple constraints on the parameter block.
+// may be used to impose simple constraints on the parameter block.
 //
 // For example, consider a scalar error e = k - x'y, where both x and y are
 // two-dimensional column vector parameters, the prime sign indicates
@@ -49,19 +49,20 @@
 // for a series of measurements, where there is an instance of the cost function
 // for each measurement k.
 //
-// The actual cost added to the total problem is e^2, or (k - x'k)^2; however,
+// The actual cost added to the total problem is e^2, or (k - x'y)^2; however,
 // the squaring is implicitly done by the optimization framework.
 //
-// To write an numerically-differentiable cost function for the above model,
+// To write a numerically-differentiable cost function for the above model,
 // first define the object
 //
 //   class MyScalarCostFunctor {
+//    public:
 //     explicit MyScalarCostFunctor(double k): k_(k) {}
 //
 //     bool operator()(const double* const x,
 //                     const double* const y,
 //                     double* residuals) const {
-//       residuals[0] = k_ - x[0] * y[0] - x[1] * y[1];
+//       residuals[0] = k_ - (x[0] * y[0] + x[1] * y[1]);
 //       return true;
 //     }
 //
@@ -116,7 +117,7 @@
 //
 // The central difference method is considerably more accurate at the cost of
 // twice as many function evaluations than forward difference. Consider using
-// central differences begin with, and only after that works, trying forward
+// central differences to begin with, and only after that works, trying forward
 // difference to improve performance.
 //
 // WARNING #1: A common beginner's error when first using
@@ -138,8 +139,8 @@
 //
 // To get a numerically differentiated cost function, define a
 // subclass of CostFunction such that the Evaluate() function ignores
-// the jacobian parameter. The numeric differentiation wrapper will
-// fill in the jacobian parameter if necessary by repeatedly calling
+// the jacobians parameter. The numeric differentiation wrapper will
+// fill in the jacobians parameter if necessary by repeatedly calling
 // the Evaluate() function with small changes to the appropriate
 // parameters, and computing the slope. For performance, the numeric
 // differentiation wrapper class is templated on the concrete cost
@@ -149,9 +150,8 @@
 // The numerically differentiated version of a cost function for a cost function
 // can be constructed as follows:
 //
-//   CostFunction* cost_function
-//       = new NumericDiffCostFunction<MyCostFunction, CENTRAL, 1, 4, 8>(
-//           new MyCostFunction(...), TAKE_OWNERSHIP);
+//   auto* cost_function
+//       = new NumericDiffCostFunction<MyCostFunction, CENTRAL, 1, 4, 8>();
 //
 // where MyCostFunction has 1 residual and 2 parameter blocks with sizes 4 and 8
 // respectively. Look at the tests for a more detailed example.
@@ -161,22 +161,25 @@
 #ifndef CERES_PUBLIC_NUMERIC_DIFF_COST_FUNCTION_H_
 #define CERES_PUBLIC_NUMERIC_DIFF_COST_FUNCTION_H_
 
+#include <algorithm>
 #include <array>
 #include <memory>
+#include <type_traits>
+#include <utility>
 
-#include "Eigen/Dense"
-#include "ceres/cost_function.h"
+#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
 #include "ceres/internal/numeric_diff.h"
 #include "ceres/internal/parameter_dims.h"
+#include "ceres/internal/variadic_evaluate.h"
 #include "ceres/numeric_diff_options.h"
 #include "ceres/sized_cost_function.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
 namespace ceres {
 
 template <typename CostFunctor,
-          NumericDiffMethodType method = CENTRAL,
+          NumericDiffMethodType kMethod = CENTRAL,
           int kNumResiduals = 0,  // Number of residuals, or ceres::DYNAMIC
           int... Ns>              // Parameters dimensions for each block.
 class NumericDiffCostFunction final
@@ -187,17 +190,50 @@ class NumericDiffCostFunction final
       Ownership ownership = TAKE_OWNERSHIP,
       int num_residuals = kNumResiduals,
       const NumericDiffOptions& options = NumericDiffOptions())
-      : functor_(functor), ownership_(ownership), options_(options) {
-    if (kNumResiduals == DYNAMIC) {
-      SizedCostFunction<kNumResiduals, Ns...>::set_num_residuals(num_residuals);
+      : NumericDiffCostFunction(std::unique_ptr<CostFunctor>(functor),
+                                ownership,
+                                num_residuals,
+                                options) {
+    if constexpr (kNumResiduals != DYNAMIC) {
+      DCHECK_EQ(num_residuals, kNumResiduals);
     }
   }
 
-  NumericDiffCostFunction(NumericDiffCostFunction&& other)
-      : functor_(std::move(other.functor_)), ownership_(other.ownership_) {}
+  explicit NumericDiffCostFunction(
+      std::unique_ptr<CostFunctor> functor,
+      int num_residuals = kNumResiduals,
+      const NumericDiffOptions& options = NumericDiffOptions())
+      : NumericDiffCostFunction(
+            std::move(functor), TAKE_OWNERSHIP, num_residuals, options) {
+    if constexpr (kNumResiduals != DYNAMIC) {
+      DCHECK_EQ(num_residuals, kNumResiduals);
+    }
+  }
 
-  virtual ~NumericDiffCostFunction() {
-    if (ownership_ != TAKE_OWNERSHIP) {
+  // Constructs the CostFunctor on the heap and takes ownership.
+  // Invocable only if the number of residuals is known at compile-time.
+  template <class... Args,
+            typename = std::enable_if_t<
+                (kNumResiduals != DYNAMIC) &&
+                std::is_constructible_v<CostFunctor, Args&&...>>>
+  explicit NumericDiffCostFunction(Args&&... args)
+      // NOTE We explicitly use direct initialization using parentheses instead
+      // of uniform initialization using braces to avoid narrowing conversion
+      // warnings.
+      : NumericDiffCostFunction(
+            std::make_unique<CostFunctor>(std::forward<Args>(args)...),
+            TAKE_OWNERSHIP,
+            kNumResiduals,
+            NumericDiffOptions()) {}
+
+  NumericDiffCostFunction(NumericDiffCostFunction&& other) noexcept = default;
+  NumericDiffCostFunction& operator=(NumericDiffCostFunction&& other) noexcept =
+      default;
+  NumericDiffCostFunction(const NumericDiffCostFunction&) = delete;
+  NumericDiffCostFunction& operator=(const NumericDiffCostFunction&) = delete;
+
+  ~NumericDiffCostFunction() override {
+    if (ownership_ == DO_NOT_TAKE_OWNERSHIP) {
       functor_.release();
     }
   }
@@ -205,8 +241,7 @@ class NumericDiffCostFunction final
   bool Evaluate(double const* const* parameters,
                 double* residuals,
                 double** jacobians) const override {
-    using internal::FixedArray;
-    using internal::NumericDiff;
+    using absl::FixedArray;
 
     using ParameterDims =
         typename SizedCostFunction<kNumResiduals, Ns...>::ParameterDims;
@@ -214,7 +249,7 @@ class NumericDiffCostFunction final
     constexpr int kNumParameters = ParameterDims::kNumParameters;
     constexpr int kNumParameterBlocks = ParameterDims::kNumParameterBlocks;
 
-    // Get the function value (residuals) at the the point to evaluate.
+    // Get the function value (residuals) at the point to evaluate.
     if (!internal::VariadicEvaluate<ParameterDims>(
             *functor_, parameters, residuals)) {
       return false;
@@ -230,19 +265,20 @@ class NumericDiffCostFunction final
         ParameterDims::GetUnpackedParameters(parameters_copy.data());
 
     for (int block = 0; block < kNumParameterBlocks; ++block) {
-      memcpy(parameters_reference_copy[block],
-             parameters[block],
-             sizeof(double) * ParameterDims::GetDim(block));
+      std::copy_n(parameters[block],
+                  ParameterDims::GetDim(block),
+                  parameters_reference_copy[block]);
     }
 
-    internal::EvaluateJacobianForParameterBlocks<ParameterDims>::
-        template Apply<method, kNumResiduals>(
-            functor_.get(),
-            residuals,
-            options_,
-            SizedCostFunction<kNumResiduals, Ns...>::num_residuals(),
-            parameters_reference_copy.data(),
-            jacobians);
+    internal::EvaluateJacobianForParameterBlocks<kMethod,
+                                                 kNumResiduals,
+                                                 ParameterDims>(
+        functor_.get(),
+        residuals,
+        options_,
+        this->num_residuals(),
+        parameters_reference_copy.data(),
+        jacobians);
 
     return true;
   }
@@ -250,6 +286,18 @@ class NumericDiffCostFunction final
   const CostFunctor& functor() const { return *functor_; }
 
  private:
+  explicit NumericDiffCostFunction(std::unique_ptr<CostFunctor> functor,
+                                   Ownership ownership,
+                                   int num_residuals,
+                                   const NumericDiffOptions& options)
+      : functor_(std::move(functor)), ownership_(ownership), options_(options) {
+    if constexpr (kNumResiduals == DYNAMIC) {
+      this->set_num_residuals(num_residuals);
+    } else {
+      DCHECK_EQ(num_residuals, kNumResiduals);
+    }
+  }
+
   std::unique_ptr<CostFunctor> functor_;
   Ownership ownership_;
   NumericDiffOptions options_;

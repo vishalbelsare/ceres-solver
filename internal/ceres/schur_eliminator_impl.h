@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2025 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -44,6 +44,13 @@
 // regression when we moved from Eigen2 to Eigen3.
 
 #define EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD 10
+// EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD change is specific only to a subset of
+// Ceres translation units (TUs). Changing the value of this define, however,
+// also changes Eigen's internal definitions and results in One Definition Rule
+// (ODR) violations if TUs with different EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD
+// values are intermixed. We avoid ODR violations by renaming the Eigen
+// namespace in TUs that modify the above define.
+#define Eigen EigenForCeres
 
 // This include must come before any #ifndef check on Ceres compile options.
 // clang-format off
@@ -54,23 +61,20 @@
 #include <map>
 
 #include "Eigen/Dense"
+#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
 #include "ceres/block_random_access_matrix.h"
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/block_structure.h"
-#include "ceres/internal/eigen.h"
-#include "ceres/internal/fixed_array.h"
+#include "ceres/eigen.h"
 #include "ceres/invert_psd_matrix.h"
 #include "ceres/map_util.h"
 #include "ceres/parallel_for.h"
 #include "ceres/schur_eliminator.h"
-#include "ceres/scoped_thread_token.h"
 #include "ceres/small_blas.h"
 #include "ceres/stl_util.h"
-#include "ceres/thread_token_provider.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::~SchurEliminator() {
@@ -107,7 +111,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Init(
   }
 
   // TODO(sameeragarwal): Now that we may have subset block structure,
-  // we need to make sure that we account for the fact that somep
+  // we need to make sure that we account for the fact that some
   // point blocks only have a "diagonal" row and nothing more.
   //
   // This likely requires a slightly different algorithm, which works
@@ -206,8 +210,6 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Eliminate(
                     const int block_size = bs->cols[i].size;
                     typename EigenTypes<Eigen::Dynamic>::ConstVectorRef diag(
                         D + bs->cols[i].position, block_size);
-
-                    std::lock_guard<std::mutex> l(cell_info->m);
                     MatrixRef m(cell_info->values, row_stride, col_stride);
                     m.block(r, c, block_size, block_size).diagonal() +=
                         diag.array().square().matrix();
@@ -252,7 +254,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Eliminate(
           ete.setZero();
         }
 
-        FixedArray<double, 8> g(e_block_size);
+        absl::FixedArray<double> g(e_block_size);
         typename EigenTypes<kEBlockSize>::VectorRef gref(g.data(),
                                                          e_block_size);
         gref.setZero();
@@ -286,7 +288,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Eliminate(
         //   rhs = F'b - F'E(E'E)^(-1) E'b
 
         if (rhs) {
-          FixedArray<double, 8> inverse_ete_g(e_block_size);
+          absl::FixedArray<double> inverse_ete_g(e_block_size);
           MatrixVectorMultiply<kEBlockSize, kEBlockSize, 0>(
               inverse_ete.data(),
               e_block_size,
@@ -301,7 +303,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Eliminate(
             thread_id, bs, inverse_ete, buffer, chunk.buffer_layout, lhs);
       });
 
-  // For rows with no e_blocks, the schur complement update reduces to
+  // For rows with no e_blocks, the Schur complement update reduces to
   // S += F'F.
   NoEBlockRowsUpdate(A, b, uneliminated_row_begins_, lhs, rhs);
 }
@@ -339,7 +341,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::BackSubstitute(
       const Cell& e_cell = row.cells.front();
       DCHECK_EQ(e_block_id, e_cell.block_id);
 
-      FixedArray<double, 8> sj(row.block.size);
+      absl::FixedArray<double> sj(row.block.size);
 
       typename EigenTypes<kRowBlockSize>::VectorRef(sj.data(), row.block.size) =
           typename EigenTypes<kRowBlockSize>::ConstVectorRef(
@@ -410,7 +412,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::UpdateRhs(
       const int block_id = row.cells[c].block_id;
       const int block_size = bs->cols[block_id].size;
       const int block = block_id - num_eliminate_blocks_;
-      std::lock_guard<std::mutex> l(*rhs_locks_[block]);
+      auto lock = MakeConditionalLock(num_threads_, *rhs_locks_[block]);
       // clang-format off
       MatrixTransposeVectorMultiply<kRowBlockSize, kFBlockSize, 1>(
           values + row.cells[c].position,
@@ -433,7 +435,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::UpdateRhs(
 //
 //   ete = y11 * y11' + y12 * y12'
 //
-// and the off diagonal blocks in the Guass Newton Hessian.
+// and the off diagonal blocks in the Gauss Newton Hessian.
 //
 //   buffer = [y11'(z11 + z12), y12' * z22, y11' * z51]
 //
@@ -508,7 +510,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
 }
 
 // Compute the outer product F'E(E'E)^{-1}E'F and subtract it from the
-// Schur complement matrix, i.e
+// Schur complement matrix, i.e.
 //
 //  S -= F'E(E'E)^{-1}E'F.
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
@@ -550,7 +552,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
           lhs->GetCell(block1, block2, &r, &c, &row_stride, &col_stride);
       if (cell_info != nullptr) {
         const int block2_size = bs->cols[it2->first].size;
-        std::lock_guard<std::mutex> l(cell_info->m);
+        auto lock = MakeConditionalLock(num_threads_, cell_info->m);
         // clang-format off
         MatrixMatrixMultiply
             <kFBlockSize, kEBlockSize, kEBlockSize, kFBlockSize, -1>(
@@ -563,7 +565,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
   }
 }
 
-// For rows with no e_blocks, the schur complement update reduces to S
+// For rows with no e_blocks, the Schur complement update reduces to S
 // += F'F. This function iterates over the rows of A with no e_block,
 // and calls NoEBlockRowOuterProduct on each row.
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
@@ -596,7 +598,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
 }
 
 // A row r of A, which has no e_blocks gets added to the Schur
-// Complement as S += r r'. This function is responsible for computing
+// complement as S += r r'. This function is responsible for computing
 // the contribution of a single row r to the Schur complement. It is
 // very similar in structure to EBlockRowOuterProduct except for
 // one difference. It does not use any of the template
@@ -627,7 +629,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
     CellInfo* cell_info =
         lhs->GetCell(block1, block1, &r, &c, &row_stride, &col_stride);
     if (cell_info != nullptr) {
-      std::lock_guard<std::mutex> l(cell_info->m);
+      auto lock = MakeConditionalLock(num_threads_, cell_info->m);
       // This multiply currently ignores the fact that this is a
       // symmetric outer product.
       // clang-format off
@@ -648,7 +650,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
           lhs->GetCell(block1, block2, &r, &c, &row_stride, &col_stride);
       if (cell_info != nullptr) {
         const int block2_size = bs->cols[row.cells[j].block_id].size;
-        std::lock_guard<std::mutex> l(cell_info->m);
+        auto lock = MakeConditionalLock(num_threads_, cell_info->m);
         // clang-format off
         MatrixTransposeMatrixMultiply
             <Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, 1>(
@@ -682,7 +684,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
     CellInfo* cell_info =
         lhs->GetCell(block1, block1, &r, &c, &row_stride, &col_stride);
     if (cell_info != nullptr) {
-      std::lock_guard<std::mutex> l(cell_info->m);
+      auto lock = MakeConditionalLock(num_threads_, cell_info->m);
       // block += b1.transpose() * b1;
       // clang-format off
       MatrixTransposeMatrixMultiply
@@ -703,7 +705,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
           lhs->GetCell(block1, block2, &r, &c, &row_stride, &col_stride);
       if (cell_info != nullptr) {
         // block += b1.transpose() * b2;
-        std::lock_guard<std::mutex> l(cell_info->m);
+        auto lock = MakeConditionalLock(num_threads_, cell_info->m);
         // clang-format off
         MatrixTransposeMatrixMultiply
             <kRowBlockSize, kFBlockSize, kRowBlockSize, kFBlockSize, 1>(
@@ -716,7 +718,6 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #endif  // CERES_INTERNAL_SCHUR_ELIMINATOR_IMPL_H_

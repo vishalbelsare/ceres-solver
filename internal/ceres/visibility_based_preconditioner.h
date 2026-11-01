@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -49,20 +49,19 @@
 #define CERES_INTERNAL_VISIBILITY_BASED_PRECONDITIONER_H_
 
 #include <memory>
-#include <set>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "absl/container/btree_set.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "ceres/block_structure.h"
 #include "ceres/graph.h"
 #include "ceres/linear_solver.h"
-#include "ceres/pair_hash.h"
 #include "ceres/preconditioner.h"
 #include "ceres/sparse_cholesky.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 class BlockRandomAccessSparseMatrix;
 class BlockSparseMatrix;
@@ -123,7 +122,7 @@ class SchurEliminatorBase;
 //   VisibilityBasedPreconditioner preconditioner(
 //      *A.block_structure(), options);
 //   preconditioner.Update(A, nullptr);
-//   preconditioner.RightMultiply(x, y);
+//   preconditioner.RightMultiplyAndAccumulate(x, y);
 class CERES_NO_EXPORT VisibilityBasedPreconditioner
     : public BlockSparseMatrixPreconditioner {
  public:
@@ -141,7 +140,7 @@ class CERES_NO_EXPORT VisibilityBasedPreconditioner
   ~VisibilityBasedPreconditioner() override;
 
   // Preconditioner interface
-  void RightMultiply(const double* x, double* y) const final;
+  void RightMultiplyAndAccumulate(const double* x, double* y) const final;
   int num_rows() const final;
 
   friend class VisibilityBasedPreconditionerTest;
@@ -155,17 +154,17 @@ class CERES_NO_EXPORT VisibilityBasedPreconditioner
   LinearSolverTerminationType Factorize();
   void ScaleOffDiagonalCells();
 
-  void ClusterCameras(const std::vector<std::set<int>>& visibility);
-  void FlattenMembershipMap(const std::unordered_map<int, int>& membership_map,
+  void ClusterCameras(const std::vector<absl::btree_set<int>>& visibility);
+  void FlattenMembershipMap(const absl::flat_hash_map<int, int>& membership_map,
                             std::vector<int>* membership_vector) const;
   void ComputeClusterVisibility(
-      const std::vector<std::set<int>>& visibility,
-      std::vector<std::set<int>>* cluster_visibility) const;
+      const std::vector<absl::btree_set<int>>& visibility,
+      std::vector<absl::btree_set<int>>* cluster_visibility) const;
   std::unique_ptr<WeightedGraph<int>> CreateClusterGraph(
-      const std::vector<std::set<int>>& visibility) const;
+      const std::vector<absl::btree_set<int>>& visibility) const;
   void ForestToClusterPairs(
       const WeightedGraph<int>& forest,
-      std::unordered_set<std::pair<int, int>, pair_hash>* cluster_pairs) const;
+      absl::flat_hash_set<std::pair<int, int>>* cluster_pairs) const;
   void ComputeBlockPairsInPreconditioner(const CompressedRowBlockStructure& bs);
   bool IsBlockPairInPreconditioner(int block1, int block2) const;
   bool IsBlockPairOffDiagonal(int block1, int block2) const;
@@ -177,7 +176,7 @@ class CERES_NO_EXPORT VisibilityBasedPreconditioner
   int num_clusters_;
 
   // Sizes of the blocks in the schur complement.
-  std::vector<int> block_size_;
+  std::vector<Block> blocks_;
 
   // Mapping from cameras to clusters.
   std::vector<int> cluster_membership_;
@@ -185,19 +184,19 @@ class CERES_NO_EXPORT VisibilityBasedPreconditioner
   // Non-zero camera pairs from the schur complement matrix that are
   // present in the preconditioner, sorted by row (first element of
   // each pair), then column (second).
-  std::set<std::pair<int, int>> block_pairs_;
+  absl::btree_set<std::pair<int, int>> block_pairs_;
 
   // Set of cluster pairs (including self pairs (i,i)) in the
   // preconditioner.
-  std::unordered_set<std::pair<int, int>, pair_hash> cluster_pairs_;
+  absl::flat_hash_set<std::pair<int, int>> cluster_pairs_;
   std::unique_ptr<SchurEliminatorBase> eliminator_;
 
   // Preconditioner matrix.
   std::unique_ptr<BlockRandomAccessSparseMatrix> m_;
+  std::unique_ptr<CompressedRowSparseMatrix> m_crs_;
   std::unique_ptr<SparseCholesky> sparse_cholesky_;
 };
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #endif  // CERES_INTERNAL_VISIBILITY_BASED_PRECONDITIONER_H_

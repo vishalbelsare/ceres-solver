@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,18 +33,14 @@
 #define CERES_PUBLIC_LINE_MANIFOLD_H_
 
 #include <Eigen/Core>
-#include <algorithm>
-#include <array>
-#include <memory>
-#include <vector>
 
+#include "absl/log/check.h"
 #include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/export.h"
 #include "ceres/internal/householder_vector.h"
 #include "ceres/internal/sphere_manifold_functions.h"
 #include "ceres/manifold.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
 namespace ceres {
 // This provides a manifold for lines, where the line is
@@ -62,11 +58,11 @@ namespace ceres {
 // for the case Graff_1(R^n).
 //
 // The class works with dynamic and static ambient space dimensions. If the
-// ambient space dimensions is known at compile time use
+// ambient space dimension is known at compile time use
 //
 //    LineManifold<3> manifold;
 //
-// If the ambient space dimensions is not known at compile time the template
+// If the ambient space dimension is not known at compile time the template
 // parameter needs to be set to ceres::DYNAMIC and the actual dimension needs
 // to be provided as a constructor argument:
 //
@@ -142,7 +138,7 @@ template <int AmbientSpaceDimension>
 bool LineManifold<AmbientSpaceDimension>::Plus(const double* x_ptr,
                                                const double* delta_ptr,
                                                double* x_plus_delta_ptr) const {
-  // We seek a box plus operator of the form
+  // We seek a Plus operator of the form
   //
   //   [o*, d*] = Plus([o, d], [delta_o, delta_d])
   //
@@ -154,18 +150,18 @@ bool LineManifold<AmbientSpaceDimension>::Plus(const double* x_ptr,
   //   d* = Plus_d(d, delta_d)
   //   o* = Plus_o(o, d, delta_o)
   //
-  // The direction update function Plus_d is the same as as the SphereManifold:
+  // The direction update function Plus_d is the same as for SphereManifold:
   //
-  //   d* = H_{v(d)} [0.5 sinc(0.5 |delta_d|) delta_d, cos(0.5 |delta_d|)]^T
+  //   d* = H_{v(d)} [sinc(|delta_d|) delta_d, cos(|delta_d|)]^T
   //
-  // where H is the householder matrix
+  // where H is the Householder matrix
   //   H_{v} = I - (2 / |v|^2) v v^T
   // and
   //   v(d) = d - sign(d_n) |d| e_n.
   //
   // The origin point update function Plus_o is defined as
   //
-  //   o* = o + H_{v(d)} [0.5 delta_o, 0]^T.
+  //   o* = o + H_{v(d)} [delta_o, 0]^T.
 
   Eigen::Map<const AmbientVector> o(x_ptr, size_);
   Eigen::Map<const AmbientVector> d(x_ptr + size_, size_);
@@ -188,7 +184,7 @@ bool LineManifold<AmbientSpaceDimension>::Plus(const double* x_ptr,
     }
   }
 
-  // Calculate the householder transformation which is needed for f_d and f_o.
+  // Calculate the Householder transformation which is needed for f_d and f_o.
   AmbientVector v(size_);
   double beta;
 
@@ -206,13 +202,10 @@ bool LineManifold<AmbientSpaceDimension>::Plus(const double* x_ptr,
 
   // The null space is in the direction of the line, so the tangent space is
   // perpendicular to the line direction. This is achieved by using the
-  // householder matrix of the direction and allow only movements
+  // Householder matrix of the direction and allow only movements
   // perpendicular to e_n.
-  //
-  // The factor of 0.5 is used to be consistent with the line direction
-  // update.
   AmbientVector y(size_);
-  y << 0.5 * delta_o, 0;
+  y << delta_o, 0;
   o_plus_delta += internal::ApplyHouseholderVector(y, v, beta);
 
   return true;
@@ -266,7 +259,7 @@ bool LineManifold<AmbientSpaceDimension>::Minus(const double* y_ptr,
 
   AmbientVector delta_o = y_o - x_o;
   const AmbientVector h_delta_o =
-      2.0 * internal::ApplyHouseholderVector(delta_o, v, beta);
+      internal::ApplyHouseholderVector(delta_o, v, beta);
   y_minus_x_o = h_delta_o.template head<TangentSpaceDimension>(size_ - 1);
 
   return true;

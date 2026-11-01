@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,10 @@
 #include <string>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "ceres/array_utils.h"
 #include "ceres/casts.h"
 #include "ceres/compressed_row_sparse_matrix.h"
@@ -45,14 +49,14 @@
 #include "ceres/loss_function.h"
 #include "ceres/manifold.h"
 #include "ceres/map_util.h"
+#include "ceres/parallel_for.h"
 #include "ceres/parameter_block.h"
 #include "ceres/problem.h"
 #include "ceres/residual_block.h"
 #include "ceres/stl_util.h"
 #include "ceres/triplet_sparse_matrix.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 const std::vector<ParameterBlock*>& Program::parameter_blocks() const {
   return parameter_blocks_;
@@ -109,16 +113,32 @@ bool Program::SetParameterBlockStatePtrsToUserStatePtrs() {
 
 bool Program::Plus(const double* state,
                    const double* delta,
-                   double* state_plus_delta) const {
-  for (auto* parameter_block : parameter_blocks_) {
-    if (!parameter_block->Plus(state, delta, state_plus_delta)) {
-      return false;
-    }
-    state += parameter_block->Size();
-    delta += parameter_block->TangentSize();
-    state_plus_delta += parameter_block->Size();
-  }
-  return true;
+                   double* state_plus_delta,
+                   ContextImpl* context,
+                   int num_threads) const {
+  std::atomic<bool> abort(false);
+  auto* parameter_blocks = parameter_blocks_.data();
+  ParallelFor(
+      context,
+      0,
+      parameter_blocks_.size(),
+      num_threads,
+      [&abort, state, delta, state_plus_delta, parameter_blocks](int block_id) {
+        if (abort) {
+          return;
+        }
+        auto parameter_block = parameter_blocks[block_id];
+
+        auto block_state = state + parameter_block->state_offset();
+        auto block_delta = delta + parameter_block->delta_offset();
+        auto block_state_plus_delta =
+            state_plus_delta + parameter_block->state_offset();
+        if (!parameter_block->Plus(
+                block_state, block_delta, block_state_plus_delta)) {
+          abort = true;
+        }
+      });
+  return abort == false;
 }
 
 void Program::SetParameterOffsetsAndIndex() {
@@ -178,7 +198,7 @@ bool Program::ParameterBlocksAreFinite(std::string* message) const {
     const int size = parameter_block->Size();
     const int invalid_index = FindInvalidValue(size, array);
     if (invalid_index != size) {
-      *message = StringPrintf(
+      *message = absl::StrFormat(
           "ParameterBlock: %p with size %d has at least one invalid value.\n"
           "First invalid value is at index: %d.\n"
           "Parameter block values: ",
@@ -223,7 +243,7 @@ bool Program::IsFeasible(std::string* message) const {
         const double lower_bound = parameter_block->LowerBoundForParameter(j);
         const double upper_bound = parameter_block->UpperBoundForParameter(j);
         if (parameters[j] < lower_bound || parameters[j] > upper_bound) {
-          *message = StringPrintf(
+          *message = absl::StrFormat(
               "ParameterBlock: %p with size %d has at least one infeasible "
               "value."
               "\nFirst infeasible value is at index: %d."
@@ -247,7 +267,7 @@ bool Program::IsFeasible(std::string* message) const {
         const double lower_bound = parameter_block->LowerBoundForParameter(j);
         const double upper_bound = parameter_block->UpperBoundForParameter(j);
         if (lower_bound >= upper_bound) {
-          *message = StringPrintf(
+          *message = absl::StrFormat(
               "ParameterBlock: %p with size %d has at least one infeasible "
               "bound."
               "\nFirst infeasible bound is at index: %d."
@@ -361,7 +381,7 @@ bool Program::RemoveFixedBlocks(std::vector<double*>* removed_parameter_blocks,
                                   nullptr,
                                   nullptr,
                                   residual_block_evaluate_scratch.get())) {
-      *error = StringPrintf(
+      *error = absl::StrFormat(
           "Evaluation of the residual %d failed during "
           "removal of fixed residual blocks.",
           i);
@@ -535,15 +555,15 @@ int Program::MaxResidualsPerResidualBlock() const {
 
 std::string Program::ToString() const {
   std::string ret = "Program dump\n";
-  ret += StringPrintf("Number of parameter blocks: %d\n", NumParameterBlocks());
-  ret += StringPrintf("Number of parameters: %d\n", NumParameters());
-  ret += "Parameters:\n";
+  absl::StrAppendFormat(
+      &ret, "Number of parameter blocks: %d\n", NumParameterBlocks());
+  absl::StrAppendFormat(&ret, "Number of parameters: %d\n", NumParameters());
+  absl::StrAppend(&ret, "Parameters:\n");
   for (int i = 0; i < parameter_blocks_.size(); ++i) {
-    ret +=
-        StringPrintf("%d: %s\n", i, parameter_blocks_[i]->ToString().c_str());
+    absl::StrAppendFormat(
+        &ret, "%d: %s\n", i, parameter_blocks_[i]->ToString());
   }
   return ret;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2018 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -42,8 +42,7 @@
 #include "ceres/solver.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // Use an inline hash function to avoid portability wrangling. Algorithm from
 // Daniel Bernstein, known as the "djb2" hash.
@@ -152,7 +151,7 @@ struct WigglyBowlCostFunctionAndEvaluationCallback : SizedCostFunction<2, 2>,
       EXPECT_EQ(evaluate_last_parameter_hash, incoming_parameter_hash);
     }
 
-    // Check: Parameter matches value in in parameter blocks during prepare.
+    // Check: Parameter matches value in parameter blocks during prepare.
     EXPECT_EQ(prepare_parameter_hash, incoming_parameter_hash);
 
     // Check: jacobians are requested if they were in PrepareForEvaluation().
@@ -386,5 +385,4 @@ TEST(EvaluationCallback, WithLineSearchMinimizerArmijoQuadratic) {
   WithLineSearchMinimizerImpl(ARMIJO, NONLINEAR_CONJUGATE_GRADIENT, QUADRATIC);
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 
 #include <cstddef>
 
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
@@ -45,7 +44,7 @@ namespace {
 // callback with estimates obtained by symmetric finite differencing
 // of rho(s).
 void AssertLossFunctionIsValid(const LossFunction& loss, double s) {
-  CHECK_GT(s, 0);
+  ASSERT_GT(s, 0);
 
   // Evaluate rho(s), rho'(s) and rho''(s).
   double rho[3];

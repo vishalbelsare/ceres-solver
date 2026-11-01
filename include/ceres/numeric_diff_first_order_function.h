@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,10 +33,12 @@
 
 #include <algorithm>
 #include <memory>
+#include <type_traits>
+#include <utility>
 
+#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
 #include "ceres/first_order_function.h"
-#include "ceres/internal/eigen.h"
-#include "ceres/internal/fixed_array.h"
 #include "ceres/internal/numeric_diff.h"
 #include "ceres/internal/parameter_dims.h"
 #include "ceres/internal/variadic_evaluate.h"
@@ -47,10 +49,10 @@ namespace ceres {
 
 // Creates FirstOrderFunctions as needed by the GradientProblem
 // framework, with gradients computed via numeric differentiation. For
-// more information on numeric differentiation, see the wikipedia
+// more information on numeric differentiation, see the Wikipedia
 // article at https://en.wikipedia.org/wiki/Numerical_differentiation
 //
-// To get an numerically differentiated cost function, you must define
+// To get a numerically differentiated cost function, you must define
 // a class with an operator() (a functor) that computes the cost.
 //
 // The function must write the computed value in the last argument
@@ -60,7 +62,7 @@ namespace ceres {
 // two-dimensional column vector parameters, the prime sign indicates
 // transposition, and a is a constant.
 //
-// To write an numerically-differentiable cost function for the above model,
+// To write a numerically-differentiable cost function for the above model,
 // first define the object
 //
 //  class QuadraticCostFunctor {
@@ -87,33 +89,88 @@ namespace ceres {
 // first order function with central differences used for computing the
 // derivative can be constructed as follows.
 //
-//   FirstOrderFunction* function
-//       = new NumericDiffFirstOrderFunction<MyScalarCostFunctor, CENTRAL, 4>(
-//           new QuadraticCostFunctor(1.0));                   ^     ^     ^
-//                                                             |     |     |
-//                                 Finite Differencing Scheme -+     |     |
-//                                 Dimension of xy ------------------------+
+//   std::unique_ptr<FirstOrderFunction> function
+//       = std::make_unique<
+//           NumericDiffFirstOrderFunction<QuadraticCostFunctor, CENTRAL, 4>>(
+//               std::make_unique<QuadraticCostFunctor>(1.0));     ^     ^
+//                                                                 |     |
+//                                 Finite Differencing Scheme -----+     |
+//                                 Dimension of xy ----------------------+
 //
 //
 // In the instantiation above, the template parameters following
 // "QuadraticCostFunctor", "CENTRAL, 4", describe the finite
 // differencing scheme as "central differencing" and the functor as
 // computing its cost from a 4 dimensional input.
+//
+// If the size of the parameter vector is not known at compile time, then an
+// alternate construction syntax can be used:
+//
+//   std::unique_ptr<FirstOrderFunction> function
+//       = std::make_unique<NumericDiffFirstOrderFunction<QuadraticCostFunctor,
+//                                                        CENTRAL>>(
+//           std::make_unique<QuadraticCostFunctor>(1.0), 4);
+//
+// Note that instead of passing 4 as a template argument, it is now passed as
+// the second argument to the constructor.
 template <typename FirstOrderFunctor,
-          NumericDiffMethodType method,
-          int kNumParameters>
+          NumericDiffMethodType kMethod,
+          int kNumParameters = DYNAMIC>
 class NumericDiffFirstOrderFunction final : public FirstOrderFunction {
  public:
+  NumericDiffFirstOrderFunction(const NumericDiffFirstOrderFunction&) = delete;
+  NumericDiffFirstOrderFunction& operator=(
+      const NumericDiffFirstOrderFunction&) = delete;
+  NumericDiffFirstOrderFunction(
+      NumericDiffFirstOrderFunction&& other) noexcept = default;
+  NumericDiffFirstOrderFunction& operator=(
+      NumericDiffFirstOrderFunction&& other) noexcept = default;
+
+  // Constructor for the case where the parameter size is known at compile time.
   explicit NumericDiffFirstOrderFunction(
-      FirstOrderFunctor* functor,
+      std::unique_ptr<FirstOrderFunctor> functor,
+      const NumericDiffOptions& options = NumericDiffOptions())
+      : NumericDiffFirstOrderFunction(
+            std::move(functor), TAKE_OWNERSHIP, kNumParameters, options) {
+    static_assert(kNumParameters != DYNAMIC,
+                  "When kNumParameters is DYNAMIC, the number of parameters "
+                  "must be provided as a constructor argument.");
+  }
+
+  template <class... Args,
+            typename = std::enable_if_t<
+                (kNumParameters != DYNAMIC) &&
+                std::is_constructible_v<FirstOrderFunctor, Args&&...>>>
+  explicit NumericDiffFirstOrderFunction(Args&&... args)
+      : NumericDiffFirstOrderFunction(
+            std::make_unique<FirstOrderFunctor>(std::forward<Args>(args)...)) {}
+
+  explicit NumericDiffFirstOrderFunction(FirstOrderFunctor* functor,
+                                         Ownership ownership = TAKE_OWNERSHIP)
+      : NumericDiffFirstOrderFunction(
+            std::unique_ptr<FirstOrderFunctor>(functor),
+            kNumParameters,
+            ownership) {
+    static_assert(kNumParameters != DYNAMIC,
+                  "When kNumParameters is DYNAMIC, the number of parameters "
+                  "must be provided as a constructor argument.");
+  }
+
+  // Constructor for the case where the parameter size is specified at run time.
+  explicit NumericDiffFirstOrderFunction(
+      std::unique_ptr<FirstOrderFunctor> functor,
+      int num_parameters,
       Ownership ownership = TAKE_OWNERSHIP,
       const NumericDiffOptions& options = NumericDiffOptions())
-      : functor_(functor), ownership_(ownership), options_(options) {
-    static_assert(kNumParameters > 0, "kNumParameters must be positive");
+      : NumericDiffFirstOrderFunction(
+            std::move(functor), ownership, num_parameters, options) {
+    if constexpr (kNumParameters != DYNAMIC) {
+      DCHECK_EQ(num_parameters, kNumParameters);
+    }
   }
 
   ~NumericDiffFirstOrderFunction() override {
-    if (ownership_ != TAKE_OWNERSHIP) {
+    if (ownership_ == DO_NOT_TAKE_OWNERSHIP) {
       functor_.release();
     }
   }
@@ -121,12 +178,8 @@ class NumericDiffFirstOrderFunction final : public FirstOrderFunction {
   bool Evaluate(const double* const parameters,
                 double* cost,
                 double* gradient) const override {
-    using ParameterDims = internal::StaticParameterDims<kNumParameters>;
-    constexpr int kNumResiduals = 1;
-
-    // Get the function value (cost) at the the point to evaluate.
-    if (!internal::VariadicEvaluate<ParameterDims>(
-            *functor_, &parameters, cost)) {
+    // Get the function value (cost) at the point to evaluate.
+    if (!(*functor_)(parameters, cost)) {
       return false;
     }
 
@@ -135,25 +188,63 @@ class NumericDiffFirstOrderFunction final : public FirstOrderFunction {
     }
 
     // Create a copy of the parameters which will get mutated.
-    internal::FixedArray<double, 32> parameters_copy(kNumParameters);
-    std::copy_n(parameters, kNumParameters, parameters_copy.data());
+    absl::FixedArray<double> parameters_copy(num_parameters_);
+    std::copy_n(parameters, num_parameters_, parameters_copy.data());
     double* parameters_ptr = parameters_copy.data();
-    internal::EvaluateJacobianForParameterBlocks<
-        ParameterDims>::template Apply<method, kNumResiduals>(functor_.get(),
-                                                              cost,
-                                                              options_,
-                                                              kNumResiduals,
-                                                              &parameters_ptr,
-                                                              &gradient);
-    return true;
+    constexpr int kNumResiduals = 1;
+    if constexpr (kNumParameters == DYNAMIC) {
+      internal::FirstOrderFunctorAdapter<FirstOrderFunctor> fofa(*functor_);
+      return internal::NumericDiff<
+          internal::FirstOrderFunctorAdapter<FirstOrderFunctor>,
+          kMethod,
+          kNumResiduals,
+          internal::DynamicParameterDims,
+          0,
+          DYNAMIC>::EvaluateJacobianForParameterBlock(&fofa,
+                                                      cost,
+                                                      options_,
+                                                      kNumResiduals,
+                                                      0,
+                                                      num_parameters_,
+                                                      &parameters_ptr,
+                                                      gradient);
+    } else {
+      using ParameterDims = internal::StaticParameterDims<kNumParameters>;
+      return internal::EvaluateJacobianForParameterBlocks<kMethod,
+                                                          kNumResiduals,
+                                                          ParameterDims>(
+          functor_.get(),
+          cost,
+          options_,
+          kNumResiduals,
+          &parameters_ptr,
+          &gradient);
+    }
   }
 
-  int NumParameters() const override { return kNumParameters; }
+  int NumParameters() const override { return num_parameters_; }
 
   const FirstOrderFunctor& functor() const { return *functor_; }
 
  private:
+  explicit NumericDiffFirstOrderFunction(
+      std::unique_ptr<FirstOrderFunctor> functor,
+      Ownership ownership,
+      int num_parameters,
+      const NumericDiffOptions& options)
+      : functor_(std::move(functor)),
+        num_parameters_(num_parameters),
+        ownership_(ownership),
+        options_(options) {
+    if constexpr (kNumParameters == DYNAMIC) {
+      DCHECK_GT(num_parameters, 0);
+    } else {
+      DCHECK_EQ(num_parameters, kNumParameters);
+    }
+  }
+
   std::unique_ptr<FirstOrderFunctor> functor_;
+  int num_parameters_;
   Ownership ownership_;
   NumericDiffOptions options_;
 };

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2021 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -27,9 +27,15 @@
 // POSSIBILITY OF SUCH DAMAGE.
 //
 // Author: sameeragarwal@google.com (Sameer Agarwal)
+//
+// Example of minimizing the Rosenbrock function
+// (https://en.wikipedia.org/wiki/Rosenbrock_function) using
+// GradientProblemSolver using automatically computed derivatives.
 
+#include <memory>
+
+#include "absl/log/initialize.h"
 #include "ceres/ceres.h"
-#include "glog/logging.h"
 
 // f(x,y) = (1-x)^2 + 100(y - x^2)^2;
 struct Rosenbrock {
@@ -41,15 +47,15 @@ struct Rosenbrock {
     return true;
   }
 
-  static ceres::FirstOrderFunction* Create() {
+  static std::unique_ptr<ceres::FirstOrderFunction> Create() {
     constexpr int kNumParameters = 2;
-    return new ceres::AutoDiffFirstOrderFunction<Rosenbrock, kNumParameters>(
-        new Rosenbrock);
+    return std::make_unique<
+        ceres::AutoDiffFirstOrderFunction<Rosenbrock, kNumParameters>>();
   }
 };
 
 int main(int argc, char** argv) {
-  google::InitGoogleLogging(argv[0]);
+  absl::InitializeLog();
 
   double parameters[2] = {-1.2, 1.0};
 

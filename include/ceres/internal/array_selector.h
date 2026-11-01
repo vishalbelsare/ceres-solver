@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2020 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,66 +32,63 @@
 #ifndef CERES_PUBLIC_INTERNAL_ARRAY_SELECTOR_H_
 #define CERES_PUBLIC_INTERNAL_ARRAY_SELECTOR_H_
 
-#include <array>
-#include <vector>
+// IWYU pragma: private
 
-#include "ceres/internal/fixed_array.h"
+#include <array>
+
+#include "Eigen/Core"
+#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
 #include "ceres/types.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
-// StaticFixedArray selects the best array implementation based on template
+// ArraySelector selects the best array implementation based on template
 // arguments. If the size is not known at compile-time, pass
-// ceres::DYNAMIC as a size-template argument.
+// ceres::DYNAMIC as the size template argument.
 //
 // Three different containers are selected in different scenarios:
 //
 //   num_elements == DYNAMIC:
-//      -> ceres::internal::FixedArray<T, max_stack_size>(size)
-
-//   num_elements != DYNAMIC  &&  num_elements <= max_stack_size
-//      -> std::array<T,num_elements>
-
-//   num_elements != DYNAMIC  &&  num_elements >  max_stack_size
-//      -> std::vector<T>(num_elements)
+//     -> absl::FixedArray<T, max_num_elements_on_stack>(size)
+//   num_elements != DYNAMIC && num_elements <= max_num_elements_on_stack:
+//     -> std::array<T, num_elements>
+//   num_elements != DYNAMIC && num_elements > max_num_elements_on_stack:
+//     -> absl::FixedArray<T, 0>(num_elements)
 //
 template <typename T,
           int num_elements,
           int max_num_elements_on_stack,
-          bool dynamic = (num_elements == DYNAMIC),
-          bool fits_on_stack = (num_elements <= max_num_elements_on_stack)>
-struct ArraySelector {};
-
-template <typename T,
-          int num_elements,
-          int max_num_elements_on_stack,
-          bool fits_on_stack>
-struct ArraySelector<T,
-                     num_elements,
-                     max_num_elements_on_stack,
-                     true,
-                     fits_on_stack>
-    : ceres::internal::FixedArray<T, max_num_elements_on_stack> {
-  explicit ArraySelector(int s)
-      : ceres::internal::FixedArray<T, max_num_elements_on_stack>(s) {}
-};
-
-template <typename T, int num_elements, int max_num_elements_on_stack>
-struct ArraySelector<T, num_elements, max_num_elements_on_stack, false, true>
-    : std::array<T, num_elements> {
-  explicit ArraySelector(int s) { CHECK_EQ(s, num_elements); }
-};
-
-template <typename T, int num_elements, int max_num_elements_on_stack>
-struct ArraySelector<T, num_elements, max_num_elements_on_stack, false, false>
-    : std::vector<T> {
-  explicit ArraySelector(int s) : std::vector<T>(s) {
-    CHECK_EQ(s, num_elements);
+          bool fits_on_stack =
+              (num_elements != DYNAMIC &&
+               num_elements <= max_num_elements_on_stack)>
+struct ArraySelector : std::array<T, num_elements> {
+  EIGEN_STRONG_INLINE explicit ArraySelector(int s) {
+    DCHECK_EQ(s, num_elements);
+  }
+  EIGEN_STRONG_INLINE ArraySelector(int s, const T& init) {
+    DCHECK_EQ(s, num_elements);
+    this->fill(init);
   }
 };
 
-}  // namespace internal
-}  // namespace ceres
+template <typename T, int num_elements, int max_num_elements_on_stack>
+struct ArraySelector<T, num_elements, max_num_elements_on_stack, false>
+    : absl::FixedArray<
+          T,
+          num_elements == DYNAMIC ? max_num_elements_on_stack : 0> {
+  using Base = absl::FixedArray<
+      T,
+      num_elements == DYNAMIC ? max_num_elements_on_stack : 0>;
+
+  EIGEN_STRONG_INLINE explicit ArraySelector(int s) : Base(s) {
+    DCHECK(num_elements == DYNAMIC || s == num_elements);
+  }
+  EIGEN_STRONG_INLINE ArraySelector(int s, const T& init) : Base(s, init) {
+    DCHECK(num_elements == DYNAMIC || s == num_elements);
+  }
+};
+
+}  // namespace ceres::internal
 
 #endif  // CERES_PUBLIC_INTERNAL_ARRAY_SELECTOR_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2021 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,10 +34,10 @@
 
 #include "ceres/array_utils.h"
 #include "ceres/first_order_function.h"
+#include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 class QuadraticCostFunctor {
  public:
@@ -51,10 +51,9 @@ class QuadraticCostFunctor {
   double a_;
 };
 
-TEST(NumericDiffFirstOrderFunction, BilinearDifferentiationTest) {
-  std::unique_ptr<FirstOrderFunction> function(
-      new NumericDiffFirstOrderFunction<QuadraticCostFunctor, CENTRAL, 4>(
-          new QuadraticCostFunctor(1.0)));
+TEST(NumericDiffFirstOrderFunction, BilinearDifferentiationTestStatic) {
+  auto function = std::make_unique<
+      NumericDiffFirstOrderFunction<QuadraticCostFunctor, CENTRAL, 4>>(1.0);
 
   double parameters[4] = {1.0, 2.0, 3.0, 4.0};
   double gradient[4];
@@ -75,5 +74,40 @@ TEST(NumericDiffFirstOrderFunction, BilinearDifferentiationTest) {
   EXPECT_NEAR(gradient[3], parameters[2], kTolerance);
 }
 
-}  // namespace internal
-}  // namespace ceres
+TEST(NumericDiffFirstOrderFunction, BilinearDifferentiationTestDynamic) {
+  auto function = std::make_unique<
+      NumericDiffFirstOrderFunction<QuadraticCostFunctor, CENTRAL>>(
+      std::make_unique<QuadraticCostFunctor>(1.0), 4);
+
+  double parameters[4] = {1.0, 2.0, 3.0, 4.0};
+  double gradient[4];
+  double cost;
+
+  function->Evaluate(parameters, &cost, nullptr);
+  EXPECT_EQ(cost, 13.0);
+
+  cost = -1.0;
+  function->Evaluate(parameters, &cost, gradient);
+
+  EXPECT_EQ(cost, 13.0);
+
+  const double kTolerance = 1e-9;
+  EXPECT_NEAR(gradient[0], parameters[1], kTolerance);
+  EXPECT_NEAR(gradient[1], parameters[0], kTolerance);
+  EXPECT_NEAR(gradient[2], parameters[3], kTolerance);
+  EXPECT_NEAR(gradient[3], parameters[2], kTolerance);
+}
+
+TEST(NumericDiffFirstOrderFunction, OwnershipTest) {
+  QuadraticCostFunctor functor(1.0);
+  {
+    NumericDiffFirstOrderFunction<QuadraticCostFunctor, CENTRAL, 4> function(
+        &functor, DO_NOT_TAKE_OWNERSHIP);
+    double parameters[4] = {1.0, 2.0, 3.0, 4.0};
+    double cost;
+    function.Evaluate(parameters, &cost, nullptr);
+    EXPECT_EQ(cost, 13.0);
+  }
+}
+
+}  // namespace ceres::internal

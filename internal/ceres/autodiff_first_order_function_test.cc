@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -53,9 +53,9 @@ class QuadraticCostFunctor {
 };
 
 TEST(AutoDiffFirstOrderFunction, BilinearDifferentiationTest) {
-  std::unique_ptr<FirstOrderFunction> function(
-      new AutoDiffFirstOrderFunction<QuadraticCostFunctor, 4>(
-          new QuadraticCostFunctor(1.0)));
+  std::unique_ptr<FirstOrderFunction> function =
+      std::make_unique<AutoDiffFirstOrderFunction<QuadraticCostFunctor, 4>>(
+          1.0);
 
   double parameters[4] = {1.0, 2.0, 3.0, 4.0};
   double gradient[4];
@@ -71,6 +71,21 @@ TEST(AutoDiffFirstOrderFunction, BilinearDifferentiationTest) {
   EXPECT_EQ(gradient[1], parameters[0]);
   EXPECT_EQ(gradient[2], parameters[3]);
   EXPECT_EQ(gradient[3], parameters[2]);
+}
+
+TEST(AutoDiffFirstOrderFunction, OwnershipTest) {
+  QuadraticCostFunctor functor(1.0);
+  {
+    AutoDiffFirstOrderFunction<QuadraticCostFunctor, 4> function(
+        &functor, DO_NOT_TAKE_OWNERSHIP);
+    double parameters[4] = {1.0, 2.0, 3.0, 4.0};
+    double cost;
+    function.Evaluate(parameters, &cost, nullptr);
+    EXPECT_EQ(cost, 13.0);
+  }
+  // If ownership was taken, this would be a use-after-free or double-free
+  // (though here it's on stack, so it would just be wrong).
+  // The test is that it doesn't crash during destruction of 'function'.
 }
 
 }  // namespace internal

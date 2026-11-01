@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2016 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,9 @@
 
 #include <memory>
 
+#include "absl/time/time.h"
+#include "ceres/eigen.h"
 #include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/eigen.h"
 #include "ceres/internal/export.h"
 #include "ceres/minimizer.h"
 #include "ceres/solver.h"
@@ -43,8 +44,7 @@
 #include "ceres/trust_region_strategy.h"
 #include "ceres/types.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // Generic trust region minimization algorithm.
 //
@@ -139,8 +139,6 @@ class CERES_NO_EXPORT TrustRegionMinimizer final : public Minimizer {
   // Scaling vector to scale the columns of the Jacobian.
   Vector jacobian_scaling_;
 
-  // Euclidean norm of x_.
-  double x_norm_;
   // Cost at x_.
   double x_cost_;
   // Minimum cost encountered up till now.
@@ -152,16 +150,15 @@ class CERES_NO_EXPORT TrustRegionMinimizer final : public Minimizer {
   double candidate_cost_;
 
   // Time at which the minimizer was started.
-  double start_time_in_secs_;
+  absl::Time start_time_;
   // Time at which the current iteration was started.
-  double iteration_start_time_in_secs_;
+  absl::Time iteration_start_time_;
   // Number of consecutive steps where the minimizer loop computed a
   // numerically invalid step.
   int num_consecutive_invalid_steps_;
 };
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #include "ceres/internal/reenable_warnings.h"
 

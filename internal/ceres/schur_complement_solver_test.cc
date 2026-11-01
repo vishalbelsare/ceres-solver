@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -42,11 +42,9 @@
 #include "ceres/linear_solver.h"
 #include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 class SchurComplementSolverTest : public ::testing::Test {
  protected:
@@ -54,7 +52,7 @@ class SchurComplementSolverTest : public ::testing::Test {
     std::unique_ptr<LinearLeastSquaresProblem> problem =
         CreateLinearLeastSquaresProblemFromId(problem_id);
 
-    CHECK(problem != nullptr);
+    ASSERT_TRUE(problem != nullptr);
     A.reset(down_cast<BlockSparseMatrix*>(problem->A.release()));
     b = std::move(problem->b);
     D = std::move(problem->D);
@@ -80,12 +78,15 @@ class SchurComplementSolverTest : public ::testing::Test {
 
     // Gold standard solutions using dense QR factorization.
     DenseSparseMatrix dense_A(triplet_A);
-    qr->Solve(&dense_A, b.get(), LinearSolver::PerSolveOptions(), sol.data());
+    LinearSolver::Summary summary = qr->Solve(
+        &dense_A, b.get(), LinearSolver::PerSolveOptions(), sol.data());
+    ASSERT_EQ(summary.termination_type, LinearSolverTerminationType::SUCCESS);
 
     // Gold standard solution with appended diagonal.
     LinearSolver::PerSolveOptions per_solve_options;
     per_solve_options.D = D.get();
-    qr->Solve(&dense_A, b.get(), per_solve_options, sol_d.data());
+    summary = qr->Solve(&dense_A, b.get(), per_solve_options, sol_d.data());
+    ASSERT_EQ(summary.termination_type, LinearSolverTerminationType::SUCCESS);
   }
 
   void ComputeAndCompareSolutions(
@@ -94,7 +95,7 @@ class SchurComplementSolverTest : public ::testing::Test {
       ceres::LinearSolverType linear_solver_type,
       ceres::DenseLinearAlgebraLibraryType dense_linear_algebra_library_type,
       ceres::SparseLinearAlgebraLibraryType sparse_linear_algebra_library_type,
-      bool use_postordering) {
+      ceres::internal::OrderingType ordering_type) {
     SetUpFromProblemId(problem_id);
     LinearSolver::Options options;
     options.elimination_groups.push_back(num_eliminate_blocks);
@@ -105,7 +106,10 @@ class SchurComplementSolverTest : public ::testing::Test {
         dense_linear_algebra_library_type;
     options.sparse_linear_algebra_library_type =
         sparse_linear_algebra_library_type;
-    options.use_postordering = use_postordering;
+    options.ordering_type = ordering_type;
+    options.use_explicit_schur_complement = true;
+    options.preconditioner_type = SCHUR_JACOBI;
+    options.max_num_iterations = num_cols;
     ContextImpl context;
     options.context = &context;
     DetectStructure(*A->block_structure(),
@@ -117,13 +121,14 @@ class SchurComplementSolverTest : public ::testing::Test {
     std::unique_ptr<LinearSolver> solver(LinearSolver::Create(options));
 
     LinearSolver::PerSolveOptions per_solve_options;
+    per_solve_options.r_tolerance = 1e-12;
     LinearSolver::Summary summary;
     if (regularization) {
       per_solve_options.D = D.get();
     }
 
     summary = solver->Solve(A.get(), b.get(), per_solve_options, x.data());
-    EXPECT_EQ(summary.termination_type, LINEAR_SOLVER_SUCCESS);
+    EXPECT_EQ(summary.termination_type, LinearSolverTerminationType::SUCCESS);
 
     if (regularization) {
       ASSERT_NEAR((sol_d - x).norm() / num_cols, 0, 1e-10)
@@ -151,98 +156,234 @@ class SchurComplementSolverTest : public ::testing::Test {
 // TODO(sameeragarwal): Refactor these using value parameterized tests.
 // TODO(sameeragarwal): More extensive tests using random matrices.
 TEST_F(SchurComplementSolverTest, DenseSchurWithEigenSmallProblem) {
-  ComputeAndCompareSolutions(2, false, DENSE_SCHUR, EIGEN, SUITE_SPARSE, true);
-  ComputeAndCompareSolutions(2, true, DENSE_SCHUR, EIGEN, SUITE_SPARSE, true);
+  ComputeAndCompareSolutions(
+      2, false, DENSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      2, true, DENSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
 }
 
 TEST_F(SchurComplementSolverTest, DenseSchurWithEigenLargeProblem) {
-  ComputeAndCompareSolutions(3, false, DENSE_SCHUR, EIGEN, SUITE_SPARSE, true);
-  ComputeAndCompareSolutions(3, true, DENSE_SCHUR, EIGEN, SUITE_SPARSE, true);
+  ComputeAndCompareSolutions(
+      3, false, DENSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      3, true, DENSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
 }
 
 TEST_F(SchurComplementSolverTest, DenseSchurWithEigenVaryingFBlockSize) {
-  ComputeAndCompareSolutions(4, true, DENSE_SCHUR, EIGEN, SUITE_SPARSE, true);
+  ComputeAndCompareSolutions(
+      4, true, DENSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
+}
+
+TEST_F(SchurComplementSolverTest, ExplicitSchurSmallProblem) {
+  ComputeAndCompareSolutions(
+      2, false, ITERATIVE_SCHUR, EIGEN, NO_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      2, true, ITERATIVE_SCHUR, EIGEN, NO_SPARSE, OrderingType::NATURAL);
+}
+
+TEST_F(SchurComplementSolverTest, ExplicitSchurLargeProblem) {
+  ComputeAndCompareSolutions(
+      3, false, ITERATIVE_SCHUR, EIGEN, NO_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      3, true, ITERATIVE_SCHUR, EIGEN, NO_SPARSE, OrderingType::NATURAL);
+}
+
+TEST_F(SchurComplementSolverTest, ExplicitSchurVaryingFBlockSize) {
+  ComputeAndCompareSolutions(
+      4, true, ITERATIVE_SCHUR, EIGEN, NO_SPARSE, OrderingType::NATURAL);
+}
+
+TEST_F(SchurComplementSolverTest,
+       ExplicitIterativeSchurBackSubstitutesOnNoConvergence) {
+  SetUpFromProblemId(2);
+  LinearSolver::Options options;
+  options.elimination_groups.push_back(num_eliminate_blocks);
+  options.elimination_groups.push_back(A->block_structure()->cols.size() -
+                                       num_eliminate_blocks);
+  options.type = ITERATIVE_SCHUR;
+  options.preconditioner_type = SCHUR_JACOBI;
+  options.max_num_iterations = 1;
+  ContextImpl context;
+  options.context = &context;
+  DetectStructure(*A->block_structure(),
+                  num_eliminate_blocks,
+                  &options.row_block_size,
+                  &options.e_block_size,
+                  &options.f_block_size);
+
+  LinearSolver::PerSolveOptions per_solve_options;
+  per_solve_options.r_tolerance = 0.0;
+  per_solve_options.q_tolerance = 0.0;
+  per_solve_options.D = D.get();
+
+  options.use_explicit_schur_complement = false;
+  std::unique_ptr<LinearSolver> implicit_solver(LinearSolver::Create(options));
+  Vector x_implicit(num_cols);
+  LinearSolver::Summary implicit_summary = implicit_solver->Solve(
+      A.get(), b.get(), per_solve_options, x_implicit.data());
+  ASSERT_EQ(implicit_summary.termination_type,
+            LinearSolverTerminationType::NO_CONVERGENCE);
+
+  options.use_explicit_schur_complement = true;
+  std::unique_ptr<LinearSolver> explicit_solver(LinearSolver::Create(options));
+  Vector x_explicit(num_cols);
+  LinearSolver::Summary explicit_summary = explicit_solver->Solve(
+      A.get(), b.get(), per_solve_options, x_explicit.data());
+  ASSERT_EQ(explicit_summary.termination_type,
+            LinearSolverTerminationType::NO_CONVERGENCE);
+
+  EXPECT_NEAR((x_implicit - x_explicit).norm() / num_cols, 0.0, 1e-10);
 }
 
 #ifndef CERES_NO_LAPACK
 TEST_F(SchurComplementSolverTest, DenseSchurWithLAPACKSmallProblem) {
-  ComputeAndCompareSolutions(2, false, DENSE_SCHUR, LAPACK, SUITE_SPARSE, true);
-  ComputeAndCompareSolutions(2, true, DENSE_SCHUR, LAPACK, SUITE_SPARSE, true);
+  ComputeAndCompareSolutions(
+      2, false, DENSE_SCHUR, LAPACK, SUITE_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      2, true, DENSE_SCHUR, LAPACK, SUITE_SPARSE, OrderingType::NATURAL);
 }
 
 TEST_F(SchurComplementSolverTest, DenseSchurWithLAPACKLargeProblem) {
-  ComputeAndCompareSolutions(3, false, DENSE_SCHUR, LAPACK, SUITE_SPARSE, true);
-  ComputeAndCompareSolutions(3, true, DENSE_SCHUR, LAPACK, SUITE_SPARSE, true);
+  ComputeAndCompareSolutions(
+      3, false, DENSE_SCHUR, LAPACK, SUITE_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      3, true, DENSE_SCHUR, LAPACK, SUITE_SPARSE, OrderingType::NATURAL);
 }
 #endif
 
 #ifndef CERES_NO_SUITESPARSE
 TEST_F(SchurComplementSolverTest,
-       SparseSchurWithSuiteSparseSmallProblemNoPostOrdering) {
+       SparseSchurWithSuiteSparseSmallProblemNATURAL) {
   ComputeAndCompareSolutions(
-      2, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, false);
-  ComputeAndCompareSolutions(2, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, false);
-}
-
-TEST_F(SchurComplementSolverTest,
-       SparseSchurWithSuiteSparseSmallProblemPostOrdering) {
-  ComputeAndCompareSolutions(2, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, true);
-  ComputeAndCompareSolutions(2, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, true);
-}
-
-TEST_F(SchurComplementSolverTest,
-       SparseSchurWithSuiteSparseLargeProblemNoPostOrdering) {
+      2, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
   ComputeAndCompareSolutions(
-      3, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, false);
-  ComputeAndCompareSolutions(3, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, false);
+      2, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
 }
 
 TEST_F(SchurComplementSolverTest,
-       SparseSchurWithSuiteSparseLargeProblemPostOrdering) {
-  ComputeAndCompareSolutions(3, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, true);
-  ComputeAndCompareSolutions(3, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, true);
+       SparseSchurWithSuiteSparseLargeProblemNATURAL) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NATURAL);
 }
+
+TEST_F(SchurComplementSolverTest, SparseSchurWithSuiteSparseSmallProblemAMD) {
+  ComputeAndCompareSolutions(
+      2, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::AMD);
+  ComputeAndCompareSolutions(
+      2, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::AMD);
+}
+
+TEST_F(SchurComplementSolverTest, SparseSchurWithSuiteSparseLargeProblemAMD) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::AMD);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::AMD);
+}
+
+#ifndef CERES_NO_CHOLMOD_PARTITION
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithSuiteSparseSmallProblemNESDIS) {
+  ComputeAndCompareSolutions(
+      2, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NESDIS);
+  ComputeAndCompareSolutions(
+      2, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NESDIS);
+}
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithSuiteSparseLargeProblemNESDIS) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NESDIS);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, SUITE_SPARSE, OrderingType::NESDIS);
+}
+#endif  // CERES_NO_CHOLMOD_PARTITION
 #endif  // CERES_NO_SUITESPARSE
 
-#ifndef CERES_NO_CXSPARSE
-TEST_F(SchurComplementSolverTest, SparseSchurWithCXSparseSmallProblem) {
-  ComputeAndCompareSolutions(2, false, SPARSE_SCHUR, EIGEN, CX_SPARSE, true);
-  ComputeAndCompareSolutions(2, true, SPARSE_SCHUR, EIGEN, CX_SPARSE, true);
-}
-
-TEST_F(SchurComplementSolverTest, SparseSchurWithCXSparseLargeProblem) {
-  ComputeAndCompareSolutions(3, false, SPARSE_SCHUR, EIGEN, CX_SPARSE, true);
-  ComputeAndCompareSolutions(3, true, SPARSE_SCHUR, EIGEN, CX_SPARSE, true);
-}
-#endif  // CERES_NO_CXSPARSE
-
 #ifndef CERES_NO_ACCELERATE_SPARSE
-TEST_F(SchurComplementSolverTest, SparseSchurWithAccelerateSparseSmallProblem) {
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithAccelerateSparseSmallProblemAMD) {
   ComputeAndCompareSolutions(
-      2, false, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, true);
+      2, false, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::AMD);
   ComputeAndCompareSolutions(
-      2, true, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, true);
+      2, true, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::AMD);
 }
 
-TEST_F(SchurComplementSolverTest, SparseSchurWithAccelerateSparseLargeProblem) {
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithAccelerateSparseSmallProblemNESDIS) {
   ComputeAndCompareSolutions(
-      3, false, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, true);
+      2, false, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::NESDIS);
   ComputeAndCompareSolutions(
-      3, true, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, true);
+      2, true, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::NESDIS);
+}
+
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithAccelerateSparseLargeProblemAMD) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::AMD);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::AMD);
+}
+
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithAccelerateSparseLargeProblemNESDIS) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::NESDIS);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, ACCELERATE_SPARSE, OrderingType::NESDIS);
 }
 #endif  // CERES_NO_ACCELERATE_SPARSE
 
 #ifdef CERES_USE_EIGEN_SPARSE
-TEST_F(SchurComplementSolverTest, SparseSchurWithEigenSparseSmallProblem) {
-  ComputeAndCompareSolutions(2, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, true);
-  ComputeAndCompareSolutions(2, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, true);
+TEST_F(SchurComplementSolverTest, SparseSchurWithEigenSparseSmallProblemAMD) {
+  ComputeAndCompareSolutions(
+      2, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::AMD);
+  ComputeAndCompareSolutions(
+      2, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::AMD);
 }
 
-TEST_F(SchurComplementSolverTest, SparseSchurWithEigenSparseLargeProblem) {
-  ComputeAndCompareSolutions(3, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, true);
-  ComputeAndCompareSolutions(3, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, true);
+#ifndef CERES_NO_EIGEN_METIS
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithEigenSparseSmallProblemNESDIS) {
+  ComputeAndCompareSolutions(
+      2, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NESDIS);
+  ComputeAndCompareSolutions(
+      2, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NESDIS);
+}
+#endif
+
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithEigenSparseSmallProblemNATURAL) {
+  ComputeAndCompareSolutions(
+      2, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      2, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NATURAL);
+}
+
+TEST_F(SchurComplementSolverTest, SparseSchurWithEigenSparseLargeProblemAMD) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::AMD);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::AMD);
+}
+
+#ifndef CERES_NO_EIGEN_METIS
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithEigenSparseLargeProblemNESDIS) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NESDIS);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NESDIS);
+}
+#endif
+
+TEST_F(SchurComplementSolverTest,
+       SparseSchurWithEigenSparseLargeProblemNATURAL) {
+  ComputeAndCompareSolutions(
+      3, false, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NATURAL);
+  ComputeAndCompareSolutions(
+      3, true, SPARSE_SCHUR, EIGEN, EIGEN_SPARSE, OrderingType::NATURAL);
 }
 #endif  // CERES_USE_EIGEN_SPARSE
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

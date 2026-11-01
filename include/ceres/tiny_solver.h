@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2021 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,7 @@
 // Ceres, so it is possible to take this file alone and put it in another
 // project without the rest of Ceres.
 //
-// Algorithm based off of:
+// Algorithm based on:
 //
 // [1] K. Madsen, H. Nielsen, O. Tingleoff.
 //     Methods for Non-linear Least Squares Problems.
@@ -51,19 +51,22 @@
 #ifndef CERES_PUBLIC_TINY_SOLVER_H_
 #define CERES_PUBLIC_TINY_SOLVER_H_
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <limits>
 
-#include "Eigen/Dense"
+#include "Eigen/Cholesky"
+#include "Eigen/Core"
 
 namespace ceres {
 
-// To use tiny solver, create a class or struct that allows computing the cost
+// To use TinySolver, create a class or struct that allows computing the cost
 // function (described below). This is similar to a ceres::CostFunction, but is
 // different to enable statically allocating all memory for the solver
 // (specifically, enum sizes). Key parts are the Scalar typedef, the enums to
 // describe problem sizes (needed to remove all heap allocations), and the
-// operator() overload to evaluate the cost and (optionally) jacobians.
+// operator() overload to evaluate the cost and (optionally) Jacobians.
 //
 //   struct TinySolverCostFunctionTraits {
 //     typedef double Scalar;
@@ -84,7 +87,7 @@ namespace ceres {
 //   double* parameters -- NUM_PARAMETERS or NumParameters()
 //   double* residuals  -- NUM_RESIDUALS or NumResiduals()
 //   double* jacobian   -- NUM_RESIDUALS * NUM_PARAMETERS in column-major format
-//                         (Eigen's default); or nullptr if no jacobian
+//                         (Eigen's default); or nullptr if no Jacobian
 //                         requested.
 //
 // An example (fully statically sized):
@@ -125,11 +128,15 @@ namespace ceres {
 //
 //   int NumParameters() const;
 //
-template <typename Function,
+template <typename Function, int kMaxResiduals = Function::NUM_RESIDUALS,
+          int kMaxParameters = Function::NUM_PARAMETERS,
           typename LinearSolver =
               Eigen::LDLT<Eigen::Matrix<typename Function::Scalar,  //
                                         Function::NUM_PARAMETERS,   //
-                                        Function::NUM_PARAMETERS>>>
+                                        Function::NUM_PARAMETERS,   //
+                                        0,                          //
+                                        kMaxParameters,             //
+                                        kMaxParameters>>>
 class TinySolver {
  public:
   // This class needs to have an Eigen aligned operator new as it contains
@@ -138,11 +145,29 @@ class TinySolver {
 
   enum {
     NUM_RESIDUALS = Function::NUM_RESIDUALS,
-    NUM_PARAMETERS = Function::NUM_PARAMETERS
+    NUM_PARAMETERS = Function::NUM_PARAMETERS,
+    MAX_NUM_RESIDUALS = kMaxResiduals,
+    MAX_NUM_PARAMETERS = kMaxParameters,
   };
   using Scalar = typename Function::Scalar;
-  using Parameters = typename Eigen::Matrix<Scalar, NUM_PARAMETERS, 1>;
+  using ParameterVector = typename Eigen::
+      Matrix<Scalar, NUM_PARAMETERS, 1, 0, MAX_NUM_PARAMETERS, 1>;
+  using ResidualVector =
+      typename Eigen::Matrix<Scalar, NUM_RESIDUALS, 1, 0, MAX_NUM_RESIDUALS, 1>;
+  using JacobianMatrix = typename Eigen::Matrix<Scalar,
+                                                NUM_RESIDUALS,
+                                                NUM_PARAMETERS,
+                                                0,
+                                                MAX_NUM_RESIDUALS,
+                                                MAX_NUM_PARAMETERS>;
+  using HessianMatrix = Eigen::Matrix<Scalar,
+                                      NUM_PARAMETERS,
+                                      NUM_PARAMETERS,
+                                      0,
+                                      MAX_NUM_PARAMETERS,
+                                      MAX_NUM_PARAMETERS>;
 
+  // Termination status of the solver.
   enum Status {
     // max_norm |J'(x) * f(x)| < gradient_tolerance
     GRADIENT_TOO_SMALL,
@@ -152,30 +177,36 @@ class TinySolver {
     COST_TOO_SMALL,
     // num_iterations >= max_num_iterations
     HIT_MAX_ITERATIONS,
-    // (new_cost - old_cost) < function_tolerance * old_cost
+    // (old_cost - new_cost) < function_tolerance * old_cost
     COST_CHANGE_TOO_SMALL,
 
     // TODO(sameeragarwal): Deal with numerical failures.
   };
 
+  // Solver options.
   struct Options {
+    // Maximum number of iterations to run.
     int max_num_iterations = 50;
 
-    // max_norm |J'(x) * f(x)| < gradient_tolerance
+    // Minimizer terminates when max_norm |J'(x) * f(x)| < gradient_tolerance.
     Scalar gradient_tolerance = 1e-10;
 
-    //  ||dx|| <= parameter_tolerance * (||x|| + parameter_tolerance)
+    // Minimizer terminates when
+    // ||dx|| <= parameter_tolerance * (||x|| + parameter_tolerance).
     Scalar parameter_tolerance = 1e-8;
 
-    // (new_cost - old_cost) < function_tolerance * old_cost
+    // Minimizer terminates when
+    // (old_cost - new_cost) < function_tolerance * old_cost.
     Scalar function_tolerance = 1e-6;
 
-    // cost_threshold > ||f(x)||^2 / 2
+    // Minimizer terminates when cost_threshold > ||f(x)||^2 / 2.
     Scalar cost_threshold = std::numeric_limits<Scalar>::epsilon();
 
+    // Initial trust region radius.
     Scalar initial_trust_region_radius = 1e4;
   };
 
+  // Summary of the optimization.
   struct Summary {
     // 1/2 ||f(x_0)||^2
     Scalar initial_cost = -1;
@@ -183,11 +214,13 @@ class TinySolver {
     Scalar final_cost = -1;
     // max_norm(J'f(x))
     Scalar gradient_max_norm = -1;
+    // Number of iterations performed.
     int iterations = -1;
+    // Termination status.
     Status status = HIT_MAX_ITERATIONS;
   };
 
-  bool Update(const Function& function, const Parameters& x) {
+  bool Update(const Function& function, const ParameterVector& x) {
     if (!function(x.data(), residuals_.data(), jacobian_.data())) {
       return false;
     }
@@ -217,10 +250,10 @@ class TinySolver {
     return true;
   }
 
-  const Summary& Solve(const Function& function, Parameters* x_and_min) {
+  const Summary& Solve(const Function& function, ParameterVector* x_and_min) {
     Initialize<NUM_RESIDUALS, NUM_PARAMETERS>(function);
     assert(x_and_min);
-    Parameters& x = *x_and_min;
+    ParameterVector& x = *x_and_min;
     summary = Summary();
     summary.iterations = 0;
 
@@ -248,10 +281,9 @@ class TinySolver {
       jtj_regularized_ = jtj_;
       const Scalar min_diagonal = 1e-6;
       const Scalar max_diagonal = 1e32;
-      for (int i = 0; i < lm_diagonal_.rows(); ++i) {
-        lm_diagonal_[i] = std::sqrt(
-            u * (std::min)((std::max)(jtj_(i, i), min_diagonal), max_diagonal));
-        jtj_regularized_(i, i) += lm_diagonal_[i] * lm_diagonal_[i];
+      for (int i = 0; i < dx_.rows(); ++i) {
+        jtj_regularized_(i, i) +=
+            u * std::clamp(jtj_(i, i), min_diagonal, max_diagonal);
       }
 
       // TODO(sameeragarwal): Check for failure and deal with it.
@@ -287,14 +319,13 @@ class TinySolver {
         // model fits well.
         x = x_new_;
 
+        // TODO(sameeragarwal): Deal with failure.
+        Update(function, x);
         if (std::abs(cost_change) < options.function_tolerance) {
-          cost_ = f_x_new_.squaredNorm() / 2;
           summary.status = COST_CHANGE_TOO_SMALL;
           break;
         }
 
-        // TODO(sameeragarwal): Deal with failure.
-        Update(function, x);
         if (summary.gradient_max_norm < options.gradient_tolerance) {
           summary.status = GRADIENT_TOO_SMALL;
           break;
@@ -330,6 +361,16 @@ class TinySolver {
     return summary;
   }
 
+  ResidualVector Residuals() const {
+    // Residual updates are stored with the opposite sign.
+    return -residuals_;
+  }
+
+  JacobianMatrix Jacobian() const {
+    // Undo the scaling applied to the Jacobian matrix during Update().
+    return jacobian_ * jacobi_scaling_.cwiseInverse().asDiagonal();
+  }
+
   Options options;
   Summary summary;
 
@@ -338,54 +379,27 @@ class TinySolver {
   // linear system. This allows reusing the intermediate storage across solves.
   LinearSolver linear_solver_;
   Scalar cost_;
-  Parameters dx_, x_new_, g_, jacobi_scaling_, lm_diagonal_, lm_step_;
-  Eigen::Matrix<Scalar, NUM_RESIDUALS, 1> residuals_, f_x_new_;
-  Eigen::Matrix<Scalar, NUM_RESIDUALS, NUM_PARAMETERS> jacobian_;
-  Eigen::Matrix<Scalar, NUM_PARAMETERS, NUM_PARAMETERS> jtj_, jtj_regularized_;
+  ParameterVector dx_, x_new_, g_, jacobi_scaling_, lm_step_;
+  ResidualVector residuals_, f_x_new_;
+  JacobianMatrix jacobian_;
+  HessianMatrix jtj_, jtj_regularized_;
 
-  // The following definitions are needed for template metaprogramming.
-  template <bool Condition, typename T>
-  struct enable_if;
-
-  template <typename T>
-  struct enable_if<true, T> {
-    using type = T;
-  };
-
-  // The number of parameters and residuals are dynamically sized.
   template <int R, int P>
-  typename enable_if<(R == Eigen::Dynamic && P == Eigen::Dynamic), void>::type
-  Initialize(const Function& function) {
-    Initialize(function.NumResiduals(), function.NumParameters());
+  void Initialize(const Function& function) {
+    if constexpr (R == Eigen::Dynamic && P == Eigen::Dynamic) {
+      Initialize(function.NumResiduals(), function.NumParameters());
+    } else if constexpr (R == Eigen::Dynamic && P != Eigen::Dynamic) {
+      Initialize(function.NumResiduals(), P);
+    } else if constexpr (R != Eigen::Dynamic && P == Eigen::Dynamic) {
+      Initialize(R, function.NumParameters());
+    }
   }
-
-  // The number of parameters is dynamically sized and the number of
-  // residuals is statically sized.
-  template <int R, int P>
-  typename enable_if<(R == Eigen::Dynamic && P != Eigen::Dynamic), void>::type
-  Initialize(const Function& function) {
-    Initialize(function.NumResiduals(), P);
-  }
-
-  // The number of parameters is statically sized and the number of
-  // residuals is dynamically sized.
-  template <int R, int P>
-  typename enable_if<(R != Eigen::Dynamic && P == Eigen::Dynamic), void>::type
-  Initialize(const Function& function) {
-    Initialize(R, function.NumParameters());
-  }
-
-  // The number of parameters and residuals are statically sized.
-  template <int R, int P>
-  typename enable_if<(R != Eigen::Dynamic && P != Eigen::Dynamic), void>::type
-  Initialize(const Function& /* function */) {}
 
   void Initialize(int num_residuals, int num_parameters) {
     dx_.resize(num_parameters);
     x_new_.resize(num_parameters);
     g_.resize(num_parameters);
     jacobi_scaling_.resize(num_parameters);
-    lm_diagonal_.resize(num_parameters);
     lm_step_.resize(num_parameters);
     residuals_.resize(num_residuals);
     f_x_new_.resize(num_residuals);

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,14 +34,15 @@
 #include <string>
 #include <utility>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "ceres/compressed_row_sparse_matrix.h"
 #include "ceres/inner_product_computer.h"
 #include "ceres/linear_solver.h"
 #include "ceres/sparse_cholesky.h"
 #include "ceres/types.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 SubsetPreconditioner::SubsetPreconditioner(Preconditioner::Options options,
                                            const BlockSparseMatrix& A)
@@ -52,13 +53,14 @@ SubsetPreconditioner::SubsetPreconditioner(Preconditioner::Options options,
   LinearSolver::Options sparse_cholesky_options;
   sparse_cholesky_options.sparse_linear_algebra_library_type =
       options_.sparse_linear_algebra_library_type;
-  sparse_cholesky_options.use_postordering = options_.use_postordering;
+  sparse_cholesky_options.ordering_type = options_.ordering_type;
   sparse_cholesky_ = SparseCholesky::Create(sparse_cholesky_options);
 }
 
 SubsetPreconditioner::~SubsetPreconditioner() = default;
 
-void SubsetPreconditioner::RightMultiply(const double* x, double* y) const {
+void SubsetPreconditioner::RightMultiplyAndAccumulate(const double* x,
+                                                      double* y) const {
   CHECK(x != nullptr);
   CHECK(y != nullptr);
   std::string message;
@@ -106,7 +108,7 @@ bool SubsetPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
   const LinearSolverTerminationType termination_type =
       sparse_cholesky_->Factorize(inner_product_computer_->mutable_result(),
                                   &message);
-  if (termination_type != LINEAR_SOLVER_SUCCESS) {
+  if (termination_type != LinearSolverTerminationType::SUCCESS) {
     LOG(ERROR) << "Preconditioner factorization failed: " << message;
     return false;
   }
@@ -114,5 +116,4 @@ bool SubsetPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
   return true;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

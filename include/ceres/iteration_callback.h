@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -61,12 +61,12 @@ struct CERES_EXPORT IterationSummary {
   // Note: step_is_nonmonotonic is always false when iteration = 0;
   bool step_is_nonmonotonic = false;
 
-  // Whether or not the minimizer accepted this step or not. If the
+  // Whether the minimizer accepted this step. If the
   // ordinary trust region algorithm is used, this means that the
   // relative reduction in the objective function value was greater
   // than Solver::Options::min_relative_decrease. However, if the
   // non-monotonic trust region algorithm is used
-  // (Solver::Options:use_nonmonotonic_steps = true), then even if the
+  // (Solver::Options::use_nonmonotonic_steps = true), then even if the
   // relative decrease is not sufficient, the algorithm may accept the
   // step and the step is declared successful.
   //
@@ -106,7 +106,7 @@ struct CERES_EXPORT IterationSummary {
   // ignore it.
   double eta = 0.0;
 
-  // Step sized computed by the line search algorithm.
+  // Step size computed by the line search algorithm.
   double step_size = 0.0;
 
   // Number of function value evaluations used by the line search algorithm.
@@ -169,16 +169,16 @@ struct CERES_EXPORT IterationSummary {
 //       const char* kReportRowFormat =
 //           "% 4d: f:% 8e d:% 3.2e g:% 3.2e h:% 3.2e "
 //           "rho:% 3.2e mu:% 3.2e eta:% 3.2e li:% 3d";
-//       string output = StringPrintf(kReportRowFormat,
-//                                    summary.iteration,
-//                                    summary.cost,
-//                                    summary.cost_change,
-//                                    summary.gradient_max_norm,
-//                                    summary.step_norm,
-//                                    summary.relative_decrease,
-//                                    summary.trust_region_radius,
-//                                    summary.eta,
-//                                    summary.linear_solver_iterations);
+//       string output = absl::StrFormat(kReportRowFormat,
+//                                       summary.iteration,
+//                                       summary.cost,
+//                                       summary.cost_change,
+//                                       summary.gradient_max_norm,
+//                                       summary.step_norm,
+//                                       summary.relative_decrease,
+//                                       summary.trust_region_radius,
+//                                       summary.eta,
+//                                       summary.linear_solver_iterations);
 //       if (log_to_stdout_) {
 //         cout << output << endl;
 //       } else {

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,13 +33,13 @@
 
 #include <cstddef>
 #include <memory>
+#include <vector>
 
+#include "ceres/numeric_diff_options.h"
+#include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
-
-using std::vector;
+namespace ceres::internal {
 
 const double kTolerance = 1e-6;
 
@@ -75,8 +75,8 @@ class MyCostFunctor {
 };
 
 TEST(DynamicNumericdiffCostFunctionTest, TestResiduals) {
-  vector<double> param_block_0(10, 0.0);
-  vector<double> param_block_1(5, 0.0);
+  std::vector<double> param_block_0(10, 0.0);
+  std::vector<double> param_block_1(5, 0.0);
   DynamicNumericDiffCostFunction<MyCostFunctor> cost_function(
       new MyCostFunctor());
   cost_function.AddParameterBlock(param_block_0.size());
@@ -84,8 +84,8 @@ TEST(DynamicNumericdiffCostFunctionTest, TestResiduals) {
   cost_function.SetNumResiduals(21);
 
   // Test residual computation.
-  vector<double> residuals(21, -100000);
-  vector<double*> parameter_blocks(2);
+  std::vector<double> residuals(21, -100000);
+  std::vector<double*> parameter_blocks(2);
   parameter_blocks[0] = &param_block_0[0];
   parameter_blocks[1] = &param_block_1[0];
   EXPECT_TRUE(
@@ -99,11 +99,11 @@ TEST(DynamicNumericdiffCostFunctionTest, TestResiduals) {
 
 TEST(DynamicNumericdiffCostFunctionTest, TestJacobian) {
   // Test the residual counting.
-  vector<double> param_block_0(10, 0.0);
+  std::vector<double> param_block_0(10, 0.0);
   for (int i = 0; i < 10; ++i) {
     param_block_0[i] = 2 * i;
   }
-  vector<double> param_block_1(5, 0.0);
+  std::vector<double> param_block_1(5, 0.0);
   DynamicNumericDiffCostFunction<MyCostFunctor> cost_function(
       new MyCostFunctor());
   cost_function.AddParameterBlock(param_block_0.size());
@@ -111,18 +111,18 @@ TEST(DynamicNumericdiffCostFunctionTest, TestJacobian) {
   cost_function.SetNumResiduals(21);
 
   // Prepare the residuals.
-  vector<double> residuals(21, -100000);
+  std::vector<double> residuals(21, -100000);
 
   // Prepare the parameters.
-  vector<double*> parameter_blocks(2);
+  std::vector<double*> parameter_blocks(2);
   parameter_blocks[0] = &param_block_0[0];
   parameter_blocks[1] = &param_block_1[0];
 
   // Prepare the jacobian.
-  vector<vector<double>> jacobian_vect(2);
+  std::vector<std::vector<double>> jacobian_vect(2);
   jacobian_vect[0].resize(21 * 10, -100000);
   jacobian_vect[1].resize(21 * 5, -100000);
-  vector<double*> jacobian;
+  std::vector<double*> jacobian;
   jacobian.push_back(jacobian_vect[0].data());
   jacobian.push_back(jacobian_vect[1].data());
 
@@ -166,11 +166,11 @@ TEST(DynamicNumericdiffCostFunctionTest, TestJacobian) {
 TEST(DynamicNumericdiffCostFunctionTest,
      JacobianWithFirstParameterBlockConstant) {  // NOLINT
   // Test the residual counting.
-  vector<double> param_block_0(10, 0.0);
+  std::vector<double> param_block_0(10, 0.0);
   for (int i = 0; i < 10; ++i) {
     param_block_0[i] = 2 * i;
   }
-  vector<double> param_block_1(5, 0.0);
+  std::vector<double> param_block_1(5, 0.0);
   DynamicNumericDiffCostFunction<MyCostFunctor> cost_function(
       new MyCostFunctor());
   cost_function.AddParameterBlock(param_block_0.size());
@@ -178,18 +178,18 @@ TEST(DynamicNumericdiffCostFunctionTest,
   cost_function.SetNumResiduals(21);
 
   // Prepare the residuals.
-  vector<double> residuals(21, -100000);
+  std::vector<double> residuals(21, -100000);
 
   // Prepare the parameters.
-  vector<double*> parameter_blocks(2);
+  std::vector<double*> parameter_blocks(2);
   parameter_blocks[0] = &param_block_0[0];
   parameter_blocks[1] = &param_block_1[0];
 
   // Prepare the jacobian.
-  vector<vector<double>> jacobian_vect(2);
+  std::vector<std::vector<double>> jacobian_vect(2);
   jacobian_vect[0].resize(21 * 10, -100000);
   jacobian_vect[1].resize(21 * 5, -100000);
-  vector<double*> jacobian;
+  std::vector<double*> jacobian;
   jacobian.push_back(nullptr);
   jacobian.push_back(jacobian_vect[1].data());
 
@@ -216,11 +216,11 @@ TEST(DynamicNumericdiffCostFunctionTest,
 TEST(DynamicNumericdiffCostFunctionTest,
      JacobianWithSecondParameterBlockConstant) {  // NOLINT
   // Test the residual counting.
-  vector<double> param_block_0(10, 0.0);
+  std::vector<double> param_block_0(10, 0.0);
   for (int i = 0; i < 10; ++i) {
     param_block_0[i] = 2 * i;
   }
-  vector<double> param_block_1(5, 0.0);
+  std::vector<double> param_block_1(5, 0.0);
   DynamicNumericDiffCostFunction<MyCostFunctor> cost_function(
       new MyCostFunctor());
   cost_function.AddParameterBlock(param_block_0.size());
@@ -228,18 +228,18 @@ TEST(DynamicNumericdiffCostFunctionTest,
   cost_function.SetNumResiduals(21);
 
   // Prepare the residuals.
-  vector<double> residuals(21, -100000);
+  std::vector<double> residuals(21, -100000);
 
   // Prepare the parameters.
-  vector<double*> parameter_blocks(2);
+  std::vector<double*> parameter_blocks(2);
   parameter_blocks[0] = &param_block_0[0];
   parameter_blocks[1] = &param_block_1[0];
 
   // Prepare the jacobian.
-  vector<vector<double>> jacobian_vect(2);
+  std::vector<std::vector<double>> jacobian_vect(2);
   jacobian_vect[0].resize(21 * 10, -100000);
   jacobian_vect[1].resize(21 * 5, -100000);
-  vector<double*> jacobian;
+  std::vector<double*> jacobian;
   jacobian.push_back(jacobian_vect[0].data());
   jacobian.push_back(nullptr);
 
@@ -410,25 +410,25 @@ class ThreeParameterCostFunctorTest : public ::testing::Test {
   }
 
  protected:
-  vector<double> x_;
-  vector<double> y_;
-  vector<double> z_;
+  std::vector<double> x_;
+  std::vector<double> y_;
+  std::vector<double> z_;
 
-  vector<double*> parameter_blocks_;
+  std::vector<double*> parameter_blocks_;
 
   std::unique_ptr<CostFunction> cost_function_;
 
-  vector<vector<double>> jacobian_vect_;
+  std::vector<std::vector<double>> jacobian_vect_;
 
-  vector<double> expected_residuals_;
+  std::vector<double> expected_residuals_;
 
-  vector<double> expected_jacobian_x_;
-  vector<double> expected_jacobian_y_;
-  vector<double> expected_jacobian_z_;
+  std::vector<double> expected_jacobian_x_;
+  std::vector<double> expected_jacobian_y_;
+  std::vector<double> expected_jacobian_z_;
 };
 
 TEST_F(ThreeParameterCostFunctorTest, TestThreeParameterResiduals) {
-  vector<double> residuals(7, -100000);
+  std::vector<double> residuals(7, -100000);
   EXPECT_TRUE(cost_function_->Evaluate(
       parameter_blocks_.data(), residuals.data(), nullptr));
   for (int i = 0; i < 7; ++i) {
@@ -437,9 +437,9 @@ TEST_F(ThreeParameterCostFunctorTest, TestThreeParameterResiduals) {
 }
 
 TEST_F(ThreeParameterCostFunctorTest, TestThreeParameterJacobian) {
-  vector<double> residuals(7, -100000);
+  std::vector<double> residuals(7, -100000);
 
-  vector<double*> jacobian;
+  std::vector<double*> jacobian;
   jacobian.push_back(jacobian_vect_[0].data());
   jacobian.push_back(jacobian_vect_[1].data());
   jacobian.push_back(jacobian_vect_[2].data());
@@ -466,9 +466,9 @@ TEST_F(ThreeParameterCostFunctorTest, TestThreeParameterJacobian) {
 
 TEST_F(ThreeParameterCostFunctorTest,
        ThreeParameterJacobianWithFirstAndLastParameterBlockConstant) {
-  vector<double> residuals(7, -100000);
+  std::vector<double> residuals(7, -100000);
 
-  vector<double*> jacobian;
+  std::vector<double*> jacobian;
   jacobian.push_back(nullptr);
   jacobian.push_back(jacobian_vect_[1].data());
   jacobian.push_back(nullptr);
@@ -487,9 +487,9 @@ TEST_F(ThreeParameterCostFunctorTest,
 
 TEST_F(ThreeParameterCostFunctorTest,
        ThreeParameterJacobianWithSecondParameterBlockConstant) {
-  vector<double> residuals(7, -100000);
+  std::vector<double> residuals(7, -100000);
 
-  vector<double*> jacobian;
+  std::vector<double*> jacobian;
   jacobian.push_back(jacobian_vect_[0].data());
   jacobian.push_back(nullptr);
   jacobian.push_back(jacobian_vect_[2].data());
@@ -510,5 +510,34 @@ TEST_F(ThreeParameterCostFunctorTest,
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+TEST(DynamicNumericdiffCostFunctionTest, DeductionTemplateCompilationTest) {
+  // Ensure deduction guide to be working
+  (void)DynamicNumericDiffCostFunction{std::make_unique<MyCostFunctor>()};
+  (void)DynamicNumericDiffCostFunction{std::make_unique<MyCostFunctor>(),
+                                       NumericDiffOptions{}};
+  (void)DynamicNumericDiffCostFunction{new MyCostFunctor};
+  (void)DynamicNumericDiffCostFunction{new MyCostFunctor, TAKE_OWNERSHIP};
+  (void)DynamicNumericDiffCostFunction{
+      new MyCostFunctor, TAKE_OWNERSHIP, NumericDiffOptions{}};
+}
+
+TEST(DynamicNumericdiffCostFunctionTest, ArgumentForwarding) {
+  (void)DynamicNumericDiffCostFunction<MyCostFunctor>();
+}
+
+TEST(DynamicNumericDiffCostFunctionTest, UniquePtr) {
+  (void)DynamicNumericDiffCostFunction<MyCostFunctor>(
+      std::make_unique<MyCostFunctor>());
+}
+
+TEST(DynamicNumericDiffCostFunctionTest, Ownership) {
+  MyCostFunctor functor;
+  {
+    DynamicNumericDiffCostFunction<MyCostFunctor> cost_function(
+        &functor, DO_NOT_TAKE_OWNERSHIP);
+    cost_function.AddParameterBlock(3);
+    cost_function.SetNumResiduals(3);
+  }
+}
+
+}  // namespace ceres::internal

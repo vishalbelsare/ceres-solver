@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
 //
 // Create CostFunctions as needed by the least squares framework, with
 // Jacobians computed via automatic differentiation. For more
-// information on automatic differentiation, see the wikipedia article
+// information on automatic differentiation, see the Wikipedia article
 // at http://en.wikipedia.org/wiki/Automatic_differentiation
 //
 // To get an auto differentiated cost function, you must define a class with a
@@ -43,7 +43,7 @@
 // The function must write the computed value in the last argument
 // (the only non-const one) and return true to indicate
 // success. Please see cost_function.h for details on how the return
-// value maybe used to impose simple constraints on the parameter
+// value may be used to impose simple constraints on the parameter
 // block.
 //
 // For example, consider a scalar error e = k - x'y, where both x and y are
@@ -61,11 +61,12 @@
 // define the object
 //
 //   class MyScalarCostFunctor {
+//    public:
 //     MyScalarCostFunctor(double k): k_(k) {}
 //
 //     template <typename T>
-//     bool operator()(const T* const x , const T* const y, T* e) const {
-//       e[0] = T(k_) - x[0] * y[0] + x[1] * y[1];
+//     bool operator()(const T* const x, const T* const y, T* e) const {
+//       e[0] = T(k_) - (x[0] * y[0] + x[1] * y[1]);
 //       return true;
 //     }
 //
@@ -82,9 +83,9 @@
 // Then given this class definition, the auto differentiated cost function for
 // it can be constructed as follows.
 //
-//   CostFunction* cost_function
-//       = new AutoDiffCostFunction<MyScalarCostFunctor, 1, 2, 2>(
-//            new MyScalarCostFunctor(1.0));             ^  ^  ^
+//   auto* cost_function
+//       = new AutoDiffCostFunction<MyScalarCostFunctor, 1, 2, 2>(1.0);
+//                                                       ^  ^  ^
 //                                                       |  |  |
 //                            Dimension of residual -----+  |  |
 //                            Dimension of x ---------------+  |
@@ -99,9 +100,11 @@
 // AutoDiffCostFunction also supports cost functions with a
 // runtime-determined number of residuals. For example:
 //
-//   CostFunction* cost_function
-//       = new AutoDiffCostFunction<MyScalarCostFunctor, DYNAMIC, 2, 2>(
-//           new CostFunctorWithDynamicNumResiduals(1.0),   ^     ^  ^
+//   auto functor = std::make_unique<CostFunctorWithDynamicNumResiduals>(1.0);
+//   auto* cost_function
+//       = new AutoDiffCostFunction<CostFunctorWithDynamicNumResiduals,
+//                                                       DYNAMIC, 2, 2>(
+//           std::move(functor),                            ^     ^  ^
 //           runtime_number_of_residuals); <----+           |     |  |
 //                                              |           |     |  |
 //                                              |           |     |  |
@@ -126,16 +129,19 @@
 #define CERES_PUBLIC_AUTODIFF_COST_FUNCTION_H_
 
 #include <memory>
+#include <type_traits>
+#include <utility>
 
+#include "absl/log/check.h"
 #include "ceres/internal/autodiff.h"
+#include "ceres/internal/variadic_evaluate.h"
 #include "ceres/sized_cost_function.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
 namespace ceres {
 
 // A cost function which computes the derivative of the cost with respect to
-// the parameters (a.k.a. the jacobian) using an auto differentiation framework.
+// the parameters (a.k.a. the Jacobian) using an auto differentiation framework.
 // The first template argument is the functor object, described in the header
 // comment. The second argument is the dimension of the residual (or
 // ceres::DYNAMIC to indicate it will be set at runtime), and subsequent
@@ -156,12 +162,38 @@ class AutoDiffCostFunction final
  public:
   // Takes ownership of functor by default. Uses the template-provided
   // value for the number of residuals ("kNumResiduals").
+  explicit AutoDiffCostFunction(std::unique_ptr<CostFunctor> functor)
+      : AutoDiffCostFunction(std::move(functor), TAKE_OWNERSHIP) {
+    static_assert(kNumResiduals != DYNAMIC,
+                  "When kNumResiduals is DYNAMIC, the number of residuals must "
+                  "be provided as a constructor argument.");
+  }
+
+  // Constructs the CostFunctor on the heap and takes ownership.
+  // Invocable only if the number of residuals is known at compile-time.
+  template <typename... Args,
+            typename = std::enable_if_t<
+                (kNumResiduals != DYNAMIC) &&
+                std::is_constructible_v<CostFunctor, Args&&...>>>
+  explicit AutoDiffCostFunction(Args&&... args)
+      // NOTE We explicitly use direct initialization using parentheses instead
+      // of uniform initialization using braces to avoid narrowing conversion
+      // warnings.
+      : AutoDiffCostFunction(
+            std::make_unique<CostFunctor>(std::forward<Args>(args)...),
+            TAKE_OWNERSHIP) {}
+
+  // Takes ownership of functor by default. Ignores the template-provided
+  // kNumResiduals in favor of the "num_residuals" argument provided.
+  AutoDiffCostFunction(std::unique_ptr<CostFunctor> functor, int num_residuals)
+      : AutoDiffCostFunction(std::move(functor), num_residuals, TAKE_OWNERSHIP) {}
+
   explicit AutoDiffCostFunction(CostFunctor* functor,
                                 Ownership ownership = TAKE_OWNERSHIP)
-      : functor_(functor), ownership_(ownership) {
+      : AutoDiffCostFunction(std::unique_ptr<CostFunctor>(functor), ownership) {
     static_assert(kNumResiduals != DYNAMIC,
-                  "Can't run the fixed-size constructor if the number of "
-                  "residuals is set to ceres::DYNAMIC.");
+                  "When kNumResiduals is DYNAMIC, the number of residuals must "
+                  "be provided as a constructor argument.");
   }
 
   // Takes ownership of functor by default. Ignores the template-provided
@@ -172,17 +204,16 @@ class AutoDiffCostFunction final
   AutoDiffCostFunction(CostFunctor* functor,
                        int num_residuals,
                        Ownership ownership = TAKE_OWNERSHIP)
-      : functor_(functor), ownership_(ownership) {
-    static_assert(kNumResiduals == DYNAMIC,
-                  "Can't run the dynamic-size constructor if the number of "
-                  "residuals is not ceres::DYNAMIC.");
-    SizedCostFunction<kNumResiduals, Ns...>::set_num_residuals(num_residuals);
-  }
+      : AutoDiffCostFunction(
+            std::unique_ptr<CostFunctor>(functor), num_residuals, ownership) {}
 
-  AutoDiffCostFunction(AutoDiffCostFunction&& other)
-      : functor_(std::move(other.functor_)), ownership_(other.ownership_) {}
+  AutoDiffCostFunction(AutoDiffCostFunction&& other) noexcept = default;
+  AutoDiffCostFunction& operator=(AutoDiffCostFunction&& other) noexcept =
+      default;
+  AutoDiffCostFunction(const AutoDiffCostFunction& other) = delete;
+  AutoDiffCostFunction& operator=(const AutoDiffCostFunction& other) = delete;
 
-  virtual ~AutoDiffCostFunction() {
+  ~AutoDiffCostFunction() override {
     // Manually release pointer if configured to not take ownership rather than
     // deleting only if ownership is taken.
     // This is to stay maximally compatible to old user code which may have
@@ -204,21 +235,37 @@ class AutoDiffCostFunction final
     using ParameterDims =
         typename SizedCostFunction<kNumResiduals, Ns...>::ParameterDims;
 
-    if (!jacobians) {
+    if (jacobians == nullptr) {
       return internal::VariadicEvaluate<ParameterDims>(
           *functor_, parameters, residuals);
     }
     return internal::AutoDifferentiate<kNumResiduals, ParameterDims>(
         *functor_,
         parameters,
-        SizedCostFunction<kNumResiduals, Ns...>::num_residuals(),
+        this->num_residuals(),
         residuals,
         jacobians);
-  };
+  }
 
   const CostFunctor& functor() const { return *functor_; }
 
  private:
+  // Internal delegating constructor for fixed-size residuals.
+  AutoDiffCostFunction(std::unique_ptr<CostFunctor> functor, Ownership ownership)
+      : functor_(std::move(functor)), ownership_(ownership) {}
+
+  // Internal delegating constructor for dynamic-size residuals.
+  AutoDiffCostFunction(std::unique_ptr<CostFunctor> functor,
+                       int num_residuals,
+                       Ownership ownership)
+      : functor_(std::move(functor)), ownership_(ownership) {
+    if constexpr (kNumResiduals == DYNAMIC) {
+      this->set_num_residuals(num_residuals);
+    } else {
+      DCHECK_EQ(num_residuals, kNumResiduals);
+    }
+  }
+
   std::unique_ptr<CostFunctor> functor_;
   Ownership ownership_;
 };

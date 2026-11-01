@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,13 @@
 #define CERES_PUBLIC_AUTODIFF_FIRST_ORDER_FUNCTION_H_
 
 #include <memory>
+#include <type_traits>
+#include <utility>
 
+#include "Eigen/Core"
+#include "ceres/eigen.h"
 #include "ceres/first_order_function.h"
-#include "ceres/internal/eigen.h"
-#include "ceres/internal/fixed_array.h"
+#include "ceres/internal/autodiff.h"
 #include "ceres/jet.h"
 #include "ceres/types.h"
 
@@ -44,13 +47,13 @@ namespace ceres {
 // Create FirstOrderFunctions as needed by the GradientProblem
 // framework, with gradients computed via automatic
 // differentiation. For more information on automatic differentiation,
-// see the wikipedia article at
+// see the Wikipedia article at
 // http://en.wikipedia.org/wiki/Automatic_differentiation
 //
 // To get an auto differentiated function, you must define a class
 // with a templated operator() (a functor) that computes the cost
 // function in terms of the template parameter T. The autodiff
-// framework substitutes appropriate "jet" objects for T in order to
+// framework substitutes appropriate "Jet" objects for T in order to
 // compute the derivative when necessary, but this is hidden, and you
 // should write the function as if T were a scalar type (e.g. a
 // double-precision floating point number).
@@ -90,7 +93,7 @@ namespace ceres {
 //
 //    FirstOrderFunction* function =
 //      new AutoDiffFirstOrderFunction<QuadraticCostFunctor, 4>(
-//          new QuadraticCostFunctor(1.0)));
+//          std::make_unique<QuadraticCostFunctor>(1.0));
 //
 // In the instantiation above, the template parameters following
 // "QuadraticCostFunctor", "4", describe the functor as computing a
@@ -104,10 +107,45 @@ namespace ceres {
 template <typename FirstOrderFunctor, int kNumParameters>
 class AutoDiffFirstOrderFunction final : public FirstOrderFunction {
  public:
-  // Takes ownership of functor.
-  explicit AutoDiffFirstOrderFunction(FirstOrderFunctor* functor)
-      : functor_(functor) {
+  // Takes ownership of functor by default.
+  explicit AutoDiffFirstOrderFunction(
+      std::unique_ptr<FirstOrderFunctor> functor)
+      : AutoDiffFirstOrderFunction(std::move(functor), TAKE_OWNERSHIP) {
     static_assert(kNumParameters > 0, "kNumParameters must be positive");
+  }
+
+  // Constructs the FirstOrderFunctor on the heap and takes ownership.
+  template <typename... Args,
+            typename = std::enable_if_t<
+                std::is_constructible_v<FirstOrderFunctor, Args&&...>>>
+  explicit AutoDiffFirstOrderFunction(Args&&... args)
+      // NOTE We explicitly use direct initialization using parentheses instead
+      // of uniform initialization using braces to avoid narrowing conversion
+      // warnings.
+      : AutoDiffFirstOrderFunction(
+            std::make_unique<FirstOrderFunctor>(std::forward<Args>(args)...),
+            TAKE_OWNERSHIP) {}
+
+  // Takes ownership of functor if ownership == TAKE_OWNERSHIP.
+  explicit AutoDiffFirstOrderFunction(FirstOrderFunctor* functor,
+                                      Ownership ownership = TAKE_OWNERSHIP)
+      : AutoDiffFirstOrderFunction(std::unique_ptr<FirstOrderFunctor>(functor),
+                                   ownership) {
+    static_assert(kNumParameters > 0, "kNumParameters must be positive");
+  }
+
+  AutoDiffFirstOrderFunction(const AutoDiffFirstOrderFunction&) = delete;
+  AutoDiffFirstOrderFunction& operator=(const AutoDiffFirstOrderFunction&) =
+      delete;
+  AutoDiffFirstOrderFunction(AutoDiffFirstOrderFunction&& other) noexcept =
+      default;
+  AutoDiffFirstOrderFunction& operator=(
+      AutoDiffFirstOrderFunction&& other) noexcept = default;
+
+  ~AutoDiffFirstOrderFunction() override {
+    if (ownership_ == DO_NOT_TAKE_OWNERSHIP) {
+      functor_.release();
+    }
   }
 
   bool Evaluate(const double* const parameters,
@@ -118,12 +156,12 @@ class AutoDiffFirstOrderFunction final : public FirstOrderFunction {
     }
 
     using JetT = Jet<double, kNumParameters>;
-    internal::FixedArray<JetT, (256 * 7) / sizeof(JetT)> x(kNumParameters);
-    for (int i = 0; i < kNumParameters; ++i) {
-      x[i].a = parameters[i];
-      x[i].v.setZero();
-      x[i].v[i] = 1.0;
-    }
+    internal::ArraySelector<JetT,
+                            kNumParameters,
+                            CERES_AUTODIFF_MAX_PARAMETERS_ON_STACK>
+        x(kNumParameters);
+    internal::Make1stOrderPerturbation<kNumParameters, 0>(parameters,
+                                                          x.data());
 
     JetT output;
     output.a = kImpossibleValue;
@@ -134,7 +172,8 @@ class AutoDiffFirstOrderFunction final : public FirstOrderFunction {
     }
 
     *cost = output.a;
-    VectorRef(gradient, kNumParameters) = output.v;
+    Eigen::Map<Eigen::Matrix<double, kNumParameters, 1>>(
+        gradient, kNumParameters) = output.v;
     return true;
   }
 
@@ -143,7 +182,12 @@ class AutoDiffFirstOrderFunction final : public FirstOrderFunction {
   const FirstOrderFunctor& functor() const { return *functor_; }
 
  private:
+  AutoDiffFirstOrderFunction(std::unique_ptr<FirstOrderFunctor> functor,
+                             Ownership ownership)
+      : functor_(std::move(functor)), ownership_(ownership) {}
+
   std::unique_ptr<FirstOrderFunctor> functor_;
+  Ownership ownership_;
 };
 
 }  // namespace ceres

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,6 +29,8 @@
 // Author: sameeragarwal@google.com (Sameer Agarwal)
 //         tbennun@gmail.com (Tal Ben-Nun)
 
+#ifdef CERES_HAS_GTEST
+
 #include "ceres/numeric_diff_test_utils.h"
 
 #include <algorithm>
@@ -39,8 +41,7 @@
 #include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 bool EasyFunctor::operator()(const double* x1,
                              const double* x2,
@@ -227,14 +228,7 @@ void ExponentialFunctor::ExpectCostFunctionEvaluationIsNearlyCorrect(
 }
 
 bool RandomizedFunctor::operator()(const double* x1, double* residuals) const {
-  double random_value =
-      static_cast<double>(rand()) / static_cast<double>(RAND_MAX);
-
-  // Normalize noise to [-factor, factor].
-  random_value *= 2.0;
-  random_value -= 1.0;
-  random_value *= noise_factor_;
-
+  double random_value = uniform_distribution_(*prng_);
   residuals[0] = x1[0] * x1[0] + random_value;
   return true;
 }
@@ -244,9 +238,6 @@ void RandomizedFunctor::ExpectCostFunctionEvaluationIsNearlyCorrect(
   std::vector<double> kTests = {0.0, 1.0, 3.0, 4.0, 50.0};
 
   const double kTolerance = 2e-4;
-
-  // Initialize random number generator with given seed.
-  srand(random_seed_);
 
   for (double& test : kTests) {
     double* parameters[] = {&test};
@@ -265,5 +256,6 @@ void RandomizedFunctor::ExpectCostFunctionEvaluationIsNearlyCorrect(
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
+
+#endif  // CERES_HAS_GTEST

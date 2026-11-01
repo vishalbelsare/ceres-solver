@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,7 @@
 // dual numbers in jet.h. Before reading the rest of this file, it is advisable
 // to read jet.h's header comment in detail.
 //
-// The helper wrapper AutoDifferentiate() computes the jacobian of
+// The helper wrapper AutoDifferentiate() computes the Jacobian of
 // functors with templated operator() taking this form:
 //
 //   struct F {
@@ -46,7 +46,7 @@
 //
 // All inputs and outputs may be vector-valued.
 //
-// To understand how jets are used to compute the jacobian, a
+// To understand how Jets are used to compute the Jacobian, a
 // picture may help. Consider a vector-valued function, F, returning 3
 // dimensions and taking a vector-valued parameter of 4 dimensions:
 //
@@ -57,11 +57,11 @@
 //                [ * ]
 //
 // Similar to the 2-parameter example for f described in jet.h, computing the
-// jacobian dy/dx is done by substituting a suitable jet object for x and all
-// intermediate steps of the computation of F. Since x is has 4 dimensions, use
+// Jacobian dy/dx is done by substituting a suitable Jet object for x and all
+// intermediate steps of the computation of F. Since x has 4 dimensions, use
 // a Jet<double, 4>.
 //
-// Before substituting a jet object for x, the dual components are set
+// Before substituting a Jet object for x, the dual components are set
 // appropriately for each dimension of x:
 //
 //          y                       x
@@ -80,21 +80,21 @@
 // Each column of the 4x4 identity is therefore for a single component of the
 // independent variable x.
 //
-// Then the jacobian of the mapping, dy/dx, is the 3x4 sub-matrix of the
+// Then the Jacobian of the mapping, dy/dx, is the 3x4 sub-matrix of the
 // extended y vector, indicated in the above diagram.
 //
 // Functors with multiple parameters
 // ---------------------------------
 // In practice, it is often convenient to use a function f of two or more
-// vector-valued parameters, for example, x[3] and z[6]. Unfortunately, the jet
+// vector-valued parameters, for example, x[3] and z[6]. Unfortunately, the Jet
 // framework is designed for a single-parameter vector-valued input. The wrapper
 // in this file addresses this issue adding support for functions with one or
 // more parameter vectors.
 //
 // To support multiple parameters, all the parameter vectors are concatenated
 // into one and treated as a single parameter vector, except that since the
-// functor expects different inputs, we need to construct the jets as if they
-// were part of a single parameter vector. The extended jets are passed
+// functor expects different inputs, we need to construct the Jets as if they
+// were part of a single parameter vector. The extended Jets are passed
 // separately for each parameter.
 //
 // For example, consider a functor F taking two vector parameters, p[2] and
@@ -107,8 +107,8 @@
 //     }
 //   };
 //
-// In this case, the necessary jet type is Jet<double, 5>. Here is a
-// visualization of the jet objects in this case:
+// In this case, the necessary Jet type is Jet<double, 5>. Here is a
+// visualization of the Jet objects in this case:
 //
 //          Dual components for p ----+
 //                                    |
@@ -127,7 +127,7 @@
 //                                              |
 //          Dual components for q --------------+
 //
-// where the 4x2 submatrix (marked with ".") and 4x3 submatrix (marked with "+"
+// where the 4x2 submatrix (marked with ".") and 4x3 submatrix (marked with "+")
 // of y in the above diagram are the derivatives of y with respect to p and q
 // respectively. This is how autodiff works for functors taking multiple vector
 // valued arguments (up to 6).
@@ -140,18 +140,19 @@
 #ifndef CERES_PUBLIC_INTERNAL_AUTODIFF_H_
 #define CERES_PUBLIC_INTERNAL_AUTODIFF_H_
 
+// IWYU pragma: private
+
 #include <array>
 #include <cstddef>
 #include <utility>
 
+#include "Eigen/Core"
+#include "absl/log/check.h"
 #include "ceres/internal/array_selector.h"
-#include "ceres/internal/eigen.h"
-#include "ceres/internal/fixed_array.h"
-#include "ceres/internal/parameter_dims.h"
+#include "ceres/internal/integer_sequence_algorithm.h"
 #include "ceres/internal/variadic_evaluate.h"
 #include "ceres/jet.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
 // If the number of parameters exceeds this values, the corresponding jets are
 // placed on the heap. This will reduce performance by a factor of 2-5 on
@@ -164,8 +165,7 @@
 #define CERES_AUTODIFF_MAX_RESIDUALS_ON_STACK 20
 #endif
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // Extends src by a 1st order perturbation for every dimension and puts it in
 // dst. The size of src is N. Since this is also used for perturbations in
@@ -180,65 +180,39 @@ namespace internal {
 //   dst[2]  [ * | . . | 0 0 1 | . . . ]
 //
 // is what would get put in dst if N was 3, offset was 3, and the jet type JetT
-// was 8-dimensional.
-template <int j, int N, int Offset, typename T, typename JetT>
-struct Make1stOrderPerturbation {
- public:
-  inline static void Apply(const T* src, JetT* dst) {
-    if (j == 0) {
-      DCHECK(src);
-      DCHECK(dst);
-    }
-    dst[j] = JetT(src[j], j + Offset);
-    Make1stOrderPerturbation<j + 1, N, Offset, T, JetT>::Apply(src, dst);
-  }
-};
-
+// was 8-dimensional. The infinitesimal part dst[i].v must be zero-initialized
+// on entry (as guaranteed by Jet's default constructor).
 template <int N, int Offset, typename T, typename JetT>
-struct Make1stOrderPerturbation<N, N, Offset, T, JetT> {
- public:
-  static void Apply(const T* src, JetT* dst) {}
-};
-
-// Calls Make1stOrderPerturbation for every parameter block.
-//
-// Example:
-// If one having three parameter blocks with dimensions (3, 2, 4), the call
-// Make1stOrderPerturbations<integer_sequence<3, 2, 4>::Apply(params, x);
-// will result in the following calls to Make1stOrderPerturbation:
-// Make1stOrderPerturbation<0, 3, 0>::Apply(params[0], x + 0);
-// Make1stOrderPerturbation<0, 2, 3>::Apply(params[1], x + 3);
-// Make1stOrderPerturbation<0, 4, 5>::Apply(params[2], x + 5);
-template <typename Seq, int ParameterIdx = 0, int Offset = 0>
-struct Make1stOrderPerturbations;
-
-template <int N, int... Ns, int ParameterIdx, int Offset>
-struct Make1stOrderPerturbations<std::integer_sequence<int, N, Ns...>,
-                                 ParameterIdx,
-                                 Offset> {
-  template <typename T, typename JetT>
-  inline static void Apply(T const* const* parameters, JetT* x) {
-    Make1stOrderPerturbation<0, N, Offset, T, JetT>::Apply(
-        parameters[ParameterIdx], x + Offset);
-    Make1stOrderPerturbations<std::integer_sequence<int, Ns...>,
-                              ParameterIdx + 1,
-                              Offset + N>::Apply(parameters, x);
+EIGEN_STRONG_INLINE void Make1stOrderPerturbation(const T* src, JetT* dst) {
+  DCHECK(src);
+  DCHECK(dst);
+  for (int i = 0; i < N; ++i) {
+    DCHECK(dst[i].v.isZero());
+    dst[i].a = src[i];
+    dst[i].v[i + Offset] = T(1.0);
   }
-};
+}
 
-// End of 'recursion'. Nothing more to do.
-template <int ParameterIdx, int Total>
-struct Make1stOrderPerturbations<std::integer_sequence<int>,
-                                 ParameterIdx,
-                                 Total> {
-  template <typename T, typename JetT>
-  static void Apply(T const* const* /* NOT USED */, JetT* /* NOT USED */) {}
-};
+// Internal non-recursive implementation of Make1stOrderPerturbations.
+template <int... Ns,
+          int... Offsets,
+          std::size_t... BlockIdx,
+          typename T,
+          typename JetT>
+EIGEN_STRONG_INLINE void Make1stOrderPerturbationsImpl(
+    T const* const* parameters,
+    JetT* x,
+    std::integer_sequence<int, Ns...>,
+    std::integer_sequence<int, Offsets...>,
+    std::index_sequence<BlockIdx...>) {
+  ((Make1stOrderPerturbation<Ns, Offsets>(parameters[BlockIdx], x + Offsets)),
+   ...);
+}
 
 // Takes the 0th order part of src, assumed to be a Jet type, and puts it in
 // dst. This is used to pick out the "vector" part of the extended y.
 template <typename JetT, typename T>
-inline void Take0thOrderPart(int M, const JetT* src, T dst) {
+EIGEN_STRONG_INLINE void Take0thOrderPart(int M, const JetT* src, T* dst) {
   DCHECK(src);
   for (int i = 0; i < M; ++i) {
     dst[i] = src[i].a;
@@ -248,7 +222,9 @@ inline void Take0thOrderPart(int M, const JetT* src, T dst) {
 // Takes N 1st order parts, starting at index N0, and puts them in the M x N
 // matrix 'dst'. This is used to pick out the "matrix" parts of the extended y.
 template <int N0, int N, typename JetT, typename T>
-inline void Take1stOrderPart(const int M, const JetT* src, T* dst) {
+EIGEN_STRONG_INLINE void Take1stOrderPart(const int M,
+                                          const JetT* src,
+                                          T* dst) {
   DCHECK(src);
   DCHECK(dst);
   for (int i = 0; i < M; ++i) {
@@ -257,63 +233,39 @@ inline void Take1stOrderPart(const int M, const JetT* src, T* dst) {
   }
 }
 
-// Calls Take1stOrderPart for every parameter block.
-//
-// Example:
-// If one having three parameter blocks with dimensions (3, 2, 4), the call
-// Take1stOrderParts<integer_sequence<3, 2, 4>::Apply(num_outputs,
-//                                                    output,
-//                                                    jacobians);
-// will result in the following calls to Take1stOrderPart:
-// if (jacobians[0]) {
-//   Take1stOrderPart<0, 3>(num_outputs, output, jacobians[0]);
-// }
-// if (jacobians[1]) {
-//   Take1stOrderPart<3, 2>(num_outputs, output, jacobians[1]);
-// }
-// if (jacobians[2]) {
-//   Take1stOrderPart<5, 4>(num_outputs, output, jacobians[2]);
-// }
-template <typename Seq, int ParameterIdx = 0, int Offset = 0>
-struct Take1stOrderParts;
-
-template <int N, int... Ns, int ParameterIdx, int Offset>
-struct Take1stOrderParts<std::integer_sequence<int, N, Ns...>,
-                         ParameterIdx,
-                         Offset> {
-  template <typename JetT, typename T>
-  inline static void Apply(int num_outputs, JetT* output, T** jacobians) {
-    if (jacobians[ParameterIdx]) {
-      Take1stOrderPart<Offset, N>(num_outputs, output, jacobians[ParameterIdx]);
-    }
-    Take1stOrderParts<std::integer_sequence<int, Ns...>,
-                      ParameterIdx + 1,
-                      Offset + N>::Apply(num_outputs, output, jacobians);
-  }
-};
-
-// End of 'recursion'. Nothing more to do.
-template <int ParameterIdx, int Offset>
-struct Take1stOrderParts<std::integer_sequence<int>, ParameterIdx, Offset> {
-  template <typename T, typename JetT>
-  static void Apply(int /* NOT USED*/,
-                    JetT* /* NOT USED*/,
-                    T** /* NOT USED */) {}
-};
+// Internal non-recursive implementation of Take1stOrderParts.
+template <int... Ns,
+          int... Offsets,
+          std::size_t... BlockIdx,
+          typename JetT,
+          typename T>
+EIGEN_STRONG_INLINE void Take1stOrderPartsImpl(
+    int num_outputs,
+    const JetT* output,
+    T** jacobians,
+    std::integer_sequence<int, Ns...>,
+    std::integer_sequence<int, Offsets...>,
+    std::index_sequence<BlockIdx...>) {
+  ((void)(jacobians[BlockIdx] != nullptr &&
+          (Take1stOrderPart<Offsets, Ns>(
+               num_outputs, output, jacobians[BlockIdx]),
+           true)),
+   ...);
+}
 
 template <int kNumResiduals,
           typename ParameterDims,
           typename Functor,
           typename T>
-inline bool AutoDifferentiate(const Functor& functor,
-                              T const* const* parameters,
-                              int dynamic_num_outputs,
-                              T* function_value,
-                              T** jacobians) {
+EIGEN_STRONG_INLINE bool AutoDifferentiate(const Functor& functor,
+                                           T const* const* parameters,
+                                           int dynamic_num_outputs,
+                                           T* function_value,
+                                           T** jacobians) {
   using JetT = Jet<T, ParameterDims::kNumParameters>;
   using Parameters = typename ParameterDims::Parameters;
 
-  if (kNumResiduals != DYNAMIC) {
+  if constexpr (kNumResiduals != DYNAMIC) {
     DCHECK_EQ(kNumResiduals, dynamic_num_outputs);
   }
 
@@ -335,17 +287,18 @@ inline bool AutoDifferentiate(const Functor& functor,
   DCHECK_GT(num_outputs, 0);
 
   ArraySelector<JetT, kNumResiduals, CERES_AUTODIFF_MAX_RESIDUALS_ON_STACK>
-      residuals_as_jets(num_outputs);
+      residuals_as_jets(
+          num_outputs,
+          JetT(T(kImpossibleValue),
+               decltype(JetT::v)::Constant(T(kImpossibleValue))));
 
-  // Invalidate the output Jets, so that we can detect if the user
-  // did not assign values to all of them.
-  for (int i = 0; i < num_outputs; ++i) {
-    residuals_as_jets[i].a = kImpossibleValue;
-    residuals_as_jets[i].v.setConstant(kImpossibleValue);
-  }
-
-  Make1stOrderPerturbations<Parameters>::Apply(parameters,
-                                               parameters_as_jets.data());
+  using Offsets = ExclusiveScan<Parameters>;
+  Make1stOrderPerturbationsImpl(
+      parameters,
+      parameters_as_jets.data(),
+      Parameters{},
+      Offsets{},
+      std::make_index_sequence<ParameterDims::kNumParameterBlocks>{});
 
   if (!VariadicEvaluate<ParameterDims>(
           functor, unpacked_parameters.data(), residuals_as_jets.data())) {
@@ -353,13 +306,17 @@ inline bool AutoDifferentiate(const Functor& functor,
   }
 
   Take0thOrderPart(num_outputs, residuals_as_jets.data(), function_value);
-  Take1stOrderParts<Parameters>::Apply(
-      num_outputs, residuals_as_jets.data(), jacobians);
+  Take1stOrderPartsImpl(
+      num_outputs,
+      residuals_as_jets.data(),
+      jacobians,
+      Parameters{},
+      Offsets{},
+      std::make_index_sequence<ParameterDims::kNumParameterBlocks>{});
 
   return true;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #endif  // CERES_PUBLIC_INTERNAL_AUTODIFF_H_

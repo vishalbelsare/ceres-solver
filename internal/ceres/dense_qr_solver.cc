@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,13 +35,12 @@
 #include "Eigen/Dense"
 #include "ceres/dense_qr.h"
 #include "ceres/dense_sparse_matrix.h"
-#include "ceres/internal/eigen.h"
+#include "ceres/eigen.h"
+#include "ceres/event_logger.h"
 #include "ceres/linear_solver.h"
 #include "ceres/types.h"
-#include "ceres/wall_time.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 DenseQRSolver::DenseQRSolver(const LinearSolver::Options& options)
     : options_(options), dense_qr_(DenseQR::Create(options)) {}
@@ -81,5 +80,4 @@ LinearSolver::Summary DenseQRSolver::SolveImpl(
   return summary;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

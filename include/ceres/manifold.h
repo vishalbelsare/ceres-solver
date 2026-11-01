@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,15 +33,12 @@
 
 #include <Eigen/Core>
 #include <algorithm>
-#include <array>
-#include <memory>
-#include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/export.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
 namespace ceres {
 
@@ -59,16 +56,16 @@ namespace ceres {
 // the two dimensional plane that is tangent to the sphere at that point. There
 // are two reasons tangent spaces are interesting:
 //
-// 1. They are Eucliean spaces so the usual vector space operations apply there,
+// 1. They are Euclidean spaces so the usual vector space operations apply there,
 //    which makes numerical operations easy.
-// 2. Movement in the tangent space translate into movements along the manifold.
+// 2. Movement in the tangent space translates into movements along the manifold.
 //    Movements perpendicular to the tangent space do not translate into
 //    movements on the manifold.
 //
 // Returning to our sphere example, moving in the 2 dimensional plane
 // tangent to the sphere and projecting back onto the sphere will move you away
 // from the point you started from but moving along the normal at the same point
-// and the projecting back onto the sphere brings you back to the point.
+// and then projecting back onto the sphere brings you back to the point.
 //
 // The Manifold interface defines two operations (and their derivatives)
 // involving the tangent space, allowing filtering and optimization to be
@@ -100,7 +97,7 @@ namespace ceres {
 // 9 dimensional vectors or 3x3 matrices, and points in its tangent spaces are
 // represented by 3 dimensional vectors.
 //
-// Defining Plus and Minus are defined in terms of the matrix Exp and Log
+// Plus and Minus are defined in terms of the matrix Exp and Log
 // operations as follows:
 //
 // Let Exp(p, q, r) = [cos(theta) + cp^2, -sr + cpq        ,  sq + cpr        ]
@@ -127,7 +124,7 @@ namespace ceres {
 // 2.  For all y, Plus(x, Minus(y, x)) = y.
 // 3.  For all delta, Minus(Plus(x, delta), x) = delta.
 // 4.  For all delta_1, delta_2
-//    |Minus(Plus(x, delta_1), Plus(x, delta_2)) <= |delta_1 - delta_2|
+//    |Minus(Plus(x, delta_1), Plus(x, delta_2))| <= |delta_1 - delta_2|
 //
 // Briefly:
 // (1) Ensures that the tangent space is "centered" at x, and the zero vector is
@@ -211,7 +208,7 @@ class CERES_EXPORT Manifold {
                      const double* x,
                      double* y_minus_x) const = 0;
 
-  // Compute the derivative of Minus(y, x) w.r.t y at y = x, i.e
+  // Compute the derivative of Minus(y, x) w.r.t y at y = x, i.e.
   //
   //   (D_1 Minus) (x, x)
   //
@@ -228,11 +225,11 @@ class CERES_EXPORT Manifold {
 //   Minus(y, x) = y - x.
 //
 // The class works with dynamic and static ambient space dimensions. If the
-// ambient space dimensions is know at compile time use
+// ambient space dimension is known at compile time use
 //
 //    EuclideanManifold<3> manifold;
 //
-// If the ambient space dimensions is not known at compile time the template
+// If the ambient space dimension is not known at compile time the template
 // parameter needs to be set to ceres::DYNAMIC and the actual dimension needs
 // to be provided as a constructor argument:
 //
@@ -245,14 +242,8 @@ class EuclideanManifold final : public Manifold {
   static_assert(ceres::DYNAMIC == Eigen::Dynamic,
                 "ceres::DYNAMIC needs to be the same as Eigen::Dynamic.");
 
-  EuclideanManifold() : size_{Size} {
-    static_assert(
-        Size != ceres::DYNAMIC,
-        "The size is set to dynamic. Please call the constructor with a size.");
-  }
-
-  explicit EuclideanManifold(int size) : size_(size) {
-    if (Size != ceres::DYNAMIC) {
+  explicit EuclideanManifold(int size = Size) : size_(size) {
+    if constexpr (Size != ceres::DYNAMIC) {
       CHECK_EQ(Size, size)
           << "Specified size by template parameter differs from the supplied "
              "one.";

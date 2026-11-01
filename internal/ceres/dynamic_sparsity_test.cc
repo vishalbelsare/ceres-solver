@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,12 +35,11 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "ceres/ceres.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // Data generated with the following Python code.
 //   import numpy as np
@@ -367,9 +366,9 @@ class EuclideanDistanceFunctor {
 };
 
 TEST(DynamicSparsity, StaticAndDynamicSparsityProduceSameSolution) {
-  // Skip test if there is no sparse linear algebra library.
+  // Skip test if there is no sparse linear algebra library that
+  // supports dynamic sparsity.
   if (!IsSparseLinearAlgebraLibraryTypeAvailable(SUITE_SPARSE) &&
-      !IsSparseLinearAlgebraLibraryTypeAvailable(CX_SPARSE) &&
       !IsSparseLinearAlgebraLibraryTypeAvailable(EIGEN_SPARSE)) {
     return;
   }
@@ -384,7 +383,7 @@ TEST(DynamicSparsity, StaticAndDynamicSparsityProduceSameSolution) {
   //
   // Initialize `X` to points on the unit circle.
   Vector w(num_segments + 1);
-  w.setLinSpaced(num_segments + 1, 0.0, 2.0 * M_PI);
+  w.setLinSpaced(num_segments + 1, 0.0, 2.0 * constants::pi);
   w.conservativeResize(num_segments);
   Matrix X(num_segments, 2);
   X.col(0) = w.array().cos();
@@ -427,32 +426,41 @@ TEST(DynamicSparsity, StaticAndDynamicSparsityProduceSameSolution) {
 
   Solver::Options options;
   options.max_num_iterations = 100;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-
-  // First, solve `X` and `t` jointly with dynamic_sparsity = true.
-  Matrix X0 = X;
-  Vector t0 = t;
-  options.dynamic_sparsity = false;
-  Solver::Summary static_summary;
-  Solve(options, &problem, &static_summary);
-  EXPECT_EQ(static_summary.termination_type, CONVERGENCE)
-      << static_summary.FullReport();
-
-  X = X0;
-  t = t0;
-  options.dynamic_sparsity = true;
-  Solver::Summary dynamic_summary;
-  Solve(options, &problem, &dynamic_summary);
-  EXPECT_EQ(dynamic_summary.termination_type, CONVERGENCE)
-      << dynamic_summary.FullReport();
-
-  EXPECT_NEAR(static_summary.final_cost,
-              dynamic_summary.final_cost,
-              std::numeric_limits<double>::epsilon())
-      << "Static: \n"
-      << static_summary.FullReport() << "\nDynamic: \n"
-      << dynamic_summary.FullReport();
+  SparseLinearAlgebraLibraryType sparse_library_types[] = {
+#if !defined(CERES_NO_SUITESPARSE)
+      ceres::SUITE_SPARSE,
+#endif
+#if defined(CERES_USE_EIGEN_SPARSE)
+      ceres::EIGEN_SPARSE,
+#endif
+#if !defined(CERES_NO_CUDSS)
+      ceres::CUDA_SPARSE,
+#endif
+  };
+  for (auto type : sparse_library_types) {
+    options.sparse_linear_algebra_library_type = type;
+    // First, solve `X` and `t` jointly with dynamic_sparsity = true.
+    Matrix X0 = X;
+    Vector t0 = t;
+    options.dynamic_sparsity = false;
+    Solver::Summary static_summary;
+    Solve(options, &problem, &static_summary);
+    EXPECT_EQ(static_summary.termination_type, CONVERGENCE)
+        << static_summary.FullReport();
+    X = X0;
+    t = t0;
+    options.dynamic_sparsity = true;
+    Solver::Summary dynamic_summary;
+    Solve(options, &problem, &dynamic_summary);
+    EXPECT_EQ(dynamic_summary.termination_type, CONVERGENCE)
+        << dynamic_summary.FullReport();
+    EXPECT_NEAR(static_summary.final_cost,
+                dynamic_summary.final_cost,
+                std::numeric_limits<double>::epsilon())
+        << "Static: \n"
+        << static_summary.FullReport() << "\nDynamic: \n"
+        << dynamic_summary.FullReport();
+  }
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

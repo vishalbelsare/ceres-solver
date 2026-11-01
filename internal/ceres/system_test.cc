@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,20 +31,16 @@
 //
 // End-to-end tests for Ceres using Powell's function.
 
-#include <cmath>
-#include <cstdlib>
-
 #include "ceres/autodiff_cost_function.h"
 #include "ceres/internal/config.h"
+#include "ceres/jet.h"
 #include "ceres/problem.h"
 #include "ceres/solver.h"
 #include "ceres/test_util.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // This class implements the SystemTestProblem interface and provides
 // access to an implementation of Powell's singular function.
@@ -88,7 +84,7 @@ class PowellsFunction {
   Problem* mutable_problem() { return &problem_; }
   Solver::Options* mutable_solver_options() { return &options_; }
 
-  static double kResidualTolerance;
+  static constexpr double kResidualTolerance = 1e-8;
 
  private:
   // Templated functions used for automatically differentiated cost
@@ -138,8 +134,6 @@ class PowellsFunction {
   Solver::Options options_;
 };
 
-double PowellsFunction::kResidualTolerance = 1e-8;
-
 using PowellTest = SystemTest<PowellsFunction>;
 
 TEST_F(PowellTest, DenseQR) {
@@ -187,17 +181,6 @@ TEST_F(PowellTest, SparseNormalCholeskyUsingSuiteSparse) {
 }
 #endif  // CERES_NO_SUITESPARSE
 
-#ifndef CERES_NO_CXSPARSE
-TEST_F(PowellTest, SparseNormalCholeskyUsingCXSparse) {
-  PowellsFunction powells_function;
-  Solver::Options* options = powells_function.mutable_solver_options();
-  options->linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  options->sparse_linear_algebra_library_type = CX_SPARSE;
-  RunSolverForConfigAndExpectResidualsMatch(*options,
-                                            powells_function.mutable_problem());
-}
-#endif  // CERES_NO_CXSPARSE
-
 #ifndef CERES_NO_ACCELERATE_SPARSE
 TEST_F(PowellTest, SparseNormalCholeskyUsingAccelerateSparse) {
   PowellsFunction powells_function;
@@ -220,5 +203,4 @@ TEST_F(PowellTest, SparseNormalCholeskyUsingEigenSparse) {
 }
 #endif  // CERES_USE_EIGEN_SPARSE
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

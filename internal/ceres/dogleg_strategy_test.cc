@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,14 +34,12 @@
 #include <memory>
 
 #include "ceres/dense_qr_solver.h"
-#include "ceres/internal/eigen.h"
+#include "ceres/eigen.h"
 #include "ceres/linear_solver.h"
 #include "ceres/trust_region_strategy.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 namespace {
 
 class Fixture : public testing::Test {
@@ -146,7 +144,7 @@ TEST_F(DoglegStrategyFixtureEllipse, TrustRegionObeyedTraditional) {
   TrustRegionStrategy::Summary summary =
       strategy.ComputeStep(pso, jacobian_.get(), residual_.data(), x_.data());
 
-  EXPECT_NE(summary.termination_type, LINEAR_SOLVER_FAILURE);
+  EXPECT_NE(summary.termination_type, LinearSolverTerminationType::FAILURE);
   EXPECT_LE(x_.norm(), options_.initial_radius * (1.0 + 4.0 * kEpsilon));
 }
 
@@ -164,7 +162,7 @@ TEST_F(DoglegStrategyFixtureEllipse, TrustRegionObeyedSubspace) {
   TrustRegionStrategy::Summary summary =
       strategy.ComputeStep(pso, jacobian_.get(), residual_.data(), x_.data());
 
-  EXPECT_NE(summary.termination_type, LINEAR_SOLVER_FAILURE);
+  EXPECT_NE(summary.termination_type, LinearSolverTerminationType::FAILURE);
   EXPECT_LE(x_.norm(), options_.initial_radius * (1.0 + 4.0 * kEpsilon));
 }
 
@@ -182,7 +180,7 @@ TEST_F(DoglegStrategyFixtureEllipse, CorrectGaussNewtonStep) {
   TrustRegionStrategy::Summary summary =
       strategy.ComputeStep(pso, jacobian_.get(), residual_.data(), x_.data());
 
-  EXPECT_NE(summary.termination_type, LINEAR_SOLVER_FAILURE);
+  EXPECT_NE(summary.termination_type, LinearSolverTerminationType::FAILURE);
   EXPECT_NEAR(x_(0), 1.0, kToleranceLoose);
   EXPECT_NEAR(x_(1), 1.0, kToleranceLoose);
   EXPECT_NEAR(x_(2), 1.0, kToleranceLoose);
@@ -240,7 +238,7 @@ TEST_F(DoglegStrategyFixtureValley, CorrectStepLocalOptimumAlongGradient) {
   TrustRegionStrategy::Summary summary =
       strategy.ComputeStep(pso, jacobian_.get(), residual_.data(), x_.data());
 
-  EXPECT_NE(summary.termination_type, LINEAR_SOLVER_FAILURE);
+  EXPECT_NE(summary.termination_type, LinearSolverTerminationType::FAILURE);
   EXPECT_NEAR(x_(0), 0.0, kToleranceLoose);
   EXPECT_NEAR(x_(1), 0.0, kToleranceLoose);
   EXPECT_NEAR(x_(2), options_.initial_radius, kToleranceLoose);
@@ -266,7 +264,7 @@ TEST_F(DoglegStrategyFixtureValley, CorrectStepGlobalOptimumAlongGradient) {
   TrustRegionStrategy::Summary summary =
       strategy.ComputeStep(pso, jacobian_.get(), residual_.data(), x_.data());
 
-  EXPECT_NE(summary.termination_type, LINEAR_SOLVER_FAILURE);
+  EXPECT_NE(summary.termination_type, LinearSolverTerminationType::FAILURE);
   EXPECT_NEAR(x_(0), 0.0, kToleranceLoose);
   EXPECT_NEAR(x_(1), 0.0, kToleranceLoose);
   EXPECT_NEAR(x_(2), 1.0, kToleranceLoose);
@@ -275,5 +273,4 @@ TEST_F(DoglegStrategyFixtureValley, CorrectStepGlobalOptimumAlongGradient) {
   EXPECT_NEAR(x_(5), 0.0, kToleranceLoose);
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,16 +28,18 @@
 //
 // Author: keir@google.com (Keir Mierle)
 
+#ifdef CERES_HAS_GTEST
+
 #ifndef CERES_INTERNAL_TEST_UTIL_H_
 #define CERES_INTERNAL_TEST_UTIL_H_
 
 #include <string>
 
+#include "absl/log/check.h"
 #include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/export.h"
 #include "ceres/problem.h"
 #include "ceres/solver.h"
-#include "ceres/stringprintf.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
@@ -74,8 +76,6 @@ CERES_NO_EXPORT void ExpectArraysCloseUptoScale(int n,
 // Construct a fully qualified path for the test file depending on the
 // local build/testing environment.
 CERES_NO_EXPORT std::string TestFileAbsolutePath(const std::string& filename);
-
-CERES_NO_EXPORT std::string ToString(const Solver::Options& options);
 
 // A templated test fixture, that is used for testing Ceres end to end
 // by computing a solution to the problem for a given solver
@@ -126,9 +126,12 @@ class CERES_NO_EXPORT SystemTest : public ::testing::Test {
   std::vector<double> expected_final_residuals_;
 };
 
+
 }  // namespace internal
 }  // namespace ceres
 
 #include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_TEST_UTIL_H_
+
+#endif // CERES_HAS_GTEST

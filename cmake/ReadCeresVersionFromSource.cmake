@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2015 Google Inc. All rights reserved.
+# Copyright 2023 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -75,7 +75,4 @@ macro(read_ceres_version_from_source CERES_SOURCE_ROOT)
   # This is on a single line s/t CMake does not interpret it as a list of
   # elements and insert ';' separators which would result in 3.;2.;0 nonsense.
   set(CERES_VERSION "${CERES_VERSION_MAJOR}.${CERES_VERSION_MINOR}.${CERES_VERSION_PATCH}")
-
-  message(STATUS "Detected Ceres version: ${CERES_VERSION} from "
-    "${CERES_VERSION_FILE}")
 endmacro()

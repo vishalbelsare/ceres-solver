@@ -60,7 +60,7 @@
 // Image number shall be greater or equal to zero. Order of cameras does not
 // matter and gaps are possible.
 //
-// Every 3D point is decribed by:
+// Every 3D point is described by:
 //
 //  - Track number point belongs to (single 4 bytes integer value).
 //  - 3D position vector, 3-component vector of float values.
@@ -104,28 +104,33 @@ typedef unsigned __int32 uint32_t;
 
 #include <cstdint>
 
+// NOTE MinGW does define the macro.
+#ifndef O_BINARY
 // O_BINARY is not defined on unix like platforms, as there is no
 // difference between binary and text files.
 #define O_BINARY 0
+#endif
 
 #endif
 
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/log/check.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
 #include "ceres/ceres.h"
 #include "ceres/rotation.h"
-#include "gflags/gflags.h"
-#include "glog/logging.h"
 
 using Mat3 = Eigen::Matrix<double, 3, 3>;
 using Vec6 = Eigen::Matrix<double, 6, 1>;
 using Vec3 = Eigen::Vector3d;
 using Vec4 = Eigen::Vector4d;
 
-using std::vector;
-
-DEFINE_string(input, "", "Input File name");
-DEFINE_string(refine_intrinsics,
-              "",
-              "Camera intrinsics to be refined. Options are: none, radial.");
+ABSL_FLAG(std::string, input, "", "Input File name");
+ABSL_FLAG(std::string,
+          refine_intrinsics,
+          "",
+          "Camera intrinsics to be refined. Options are: none, radial.");
 
 namespace {
 
@@ -204,7 +209,7 @@ enum {
 };
 
 // Returns a pointer to the camera corresponding to a image.
-EuclideanCamera* CameraForImage(vector<EuclideanCamera>* all_cameras,
+EuclideanCamera* CameraForImage(std::vector<EuclideanCamera>* all_cameras,
                                 const int image) {
   if (image < 0 || image >= all_cameras->size()) {
     return nullptr;
@@ -217,7 +222,7 @@ EuclideanCamera* CameraForImage(vector<EuclideanCamera>* all_cameras,
 }
 
 const EuclideanCamera* CameraForImage(
-    const vector<EuclideanCamera>& all_cameras, const int image) {
+    const std::vector<EuclideanCamera>& all_cameras, const int image) {
   if (image < 0 || image >= all_cameras.size()) {
     return nullptr;
   }
@@ -229,7 +234,7 @@ const EuclideanCamera* CameraForImage(
 }
 
 // Returns maximal image number at which marker exists.
-int MaxImage(const vector<Marker>& all_markers) {
+int MaxImage(const std::vector<Marker>& all_markers) {
   if (all_markers.size() == 0) {
     return -1;
   }
@@ -242,7 +247,7 @@ int MaxImage(const vector<Marker>& all_markers) {
 }
 
 // Returns a pointer to the point corresponding to a track.
-EuclideanPoint* PointForTrack(vector<EuclideanPoint>* all_points,
+EuclideanPoint* PointForTrack(std::vector<EuclideanPoint>* all_points,
                               const int track) {
   if (track < 0 || track >= all_points->size()) {
     return nullptr;
@@ -284,7 +289,7 @@ class EndianAwareFileReader {
     if (file_descriptor_ < 0) {
       return false;
     }
-    // Get an endian tpye of data in the file.
+    // Get an endian type of data in the file.
     auto file_endian_type_flag = Read<unsigned char>();
     if (file_endian_type_flag == 'V') {
       file_endian_type_ = kBigEndian;
@@ -300,7 +305,9 @@ class EndianAwareFileReader {
   template <typename T>
   T Read() const {
     T value;
+    CERES_DISABLE_DEPRECATED_WARNING
     CHECK_GT(read(file_descriptor_, &value, sizeof(value)), 0);
+    CERES_RESTORE_DEPRECATED_WARNING
     // Switch endian type if file contains data in different type
     // that current machine.
     if (file_endian_type_ != host_endian_type_) {
@@ -370,10 +377,10 @@ void ReadVector3(const EndianAwareFileReader& file_reader, Vec3* vector) {
 // reading.
 bool ReadProblemFromFile(const std::string& file_name,
                          double camera_intrinsics[8],
-                         vector<EuclideanCamera>* all_cameras,
-                         vector<EuclideanPoint>* all_points,
+                         std::vector<EuclideanCamera>* all_cameras,
+                         std::vector<EuclideanPoint>* all_points,
                          bool* is_image_space,
-                         vector<Marker>* all_markers) {
+                         std::vector<Marker>* all_markers) {
   EndianAwareFileReader file_reader;
   if (!file_reader.OpenFile(file_name)) {
     return false;
@@ -611,10 +618,10 @@ void PrintCameraIntrinsics(const char* text, const double* camera_intrinsics) {
 //
 // Element with index i matches to a rotation+translation for
 // camera at image i.
-vector<Vec6> PackCamerasRotationAndTranslation(
-    const vector<Marker>& all_markers,
-    const vector<EuclideanCamera>& all_cameras) {
-  vector<Vec6> all_cameras_R_t;
+std::vector<Vec6> PackCamerasRotationAndTranslation(
+    const std::vector<Marker>& all_markers,
+    const std::vector<EuclideanCamera>& all_cameras) {
+  std::vector<Vec6> all_cameras_R_t;
   int max_image = MaxImage(all_markers);
 
   all_cameras_R_t.resize(max_image + 1);
@@ -634,9 +641,10 @@ vector<Vec6> PackCamerasRotationAndTranslation(
 }
 
 // Convert cameras rotations fro mangle axis back to rotation matrix.
-void UnpackCamerasRotationAndTranslation(const vector<Marker>& all_markers,
-                                         const vector<Vec6>& all_cameras_R_t,
-                                         vector<EuclideanCamera>* all_cameras) {
+void UnpackCamerasRotationAndTranslation(
+    const std::vector<Marker>& all_markers,
+    const std::vector<Vec6>& all_cameras_R_t,
+    std::vector<EuclideanCamera>* all_cameras) {
   int max_image = MaxImage(all_markers);
 
   for (int i = 0; i <= max_image; i++) {
@@ -651,12 +659,12 @@ void UnpackCamerasRotationAndTranslation(const vector<Marker>& all_markers,
   }
 }
 
-void EuclideanBundleCommonIntrinsics(const vector<Marker>& all_markers,
+void EuclideanBundleCommonIntrinsics(const std::vector<Marker>& all_markers,
                                      const int bundle_intrinsics,
                                      const int bundle_constraints,
                                      double* camera_intrinsics,
-                                     vector<EuclideanCamera>* all_cameras,
-                                     vector<EuclideanPoint>* all_points) {
+                                     std::vector<EuclideanCamera>* all_cameras,
+                                     std::vector<EuclideanPoint>* all_points) {
   PrintCameraIntrinsics("Original intrinsics: ", camera_intrinsics);
 
   ceres::Problem::Options problem_options;
@@ -668,7 +676,7 @@ void EuclideanBundleCommonIntrinsics(const vector<Marker>& all_markers,
   //
   // Block for minimization has got the following structure:
   //   <3 elements for angle-axis> <3 elements for translation>
-  vector<Vec6> all_cameras_R_t =
+  std::vector<Vec6> all_cameras_R_t =
       PackCamerasRotationAndTranslation(all_markers, *all_cameras);
 
   // Manifold used to restrict camera motion for modal solvers.
@@ -701,7 +709,7 @@ void EuclideanBundleCommonIntrinsics(const vector<Marker>& all_markers,
     }
 
     // Rotation of camera denoted in angle axis followed with
-    // camera translaiton.
+    // camera translation.
     double* current_camera_R_t = &all_cameras_R_t[camera->image](0);
 
     errors.emplace_back(marker.x, marker.y);
@@ -787,21 +795,21 @@ void EuclideanBundleCommonIntrinsics(const vector<Marker>& all_markers,
 }  // namespace
 
 int main(int argc, char** argv) {
-  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  absl::InitializeLog();
+  absl::ParseCommandLine(argc, argv);
 
-  if (CERES_GET_FLAG(FLAGS_input).empty()) {
+  if (absl::GetFlag(FLAGS_input).empty()) {
     LOG(ERROR) << "Usage: libmv_bundle_adjuster --input=blender_problem";
     return EXIT_FAILURE;
   }
 
   double camera_intrinsics[8];
-  vector<EuclideanCamera> all_cameras;
-  vector<EuclideanPoint> all_points;
+  std::vector<EuclideanCamera> all_cameras;
+  std::vector<EuclideanPoint> all_points;
   bool is_image_space;
-  vector<Marker> all_markers;
+  std::vector<Marker> all_markers;
 
-  if (!ReadProblemFromFile(CERES_GET_FLAG(FLAGS_input),
+  if (!ReadProblemFromFile(absl::GetFlag(FLAGS_input),
                            camera_intrinsics,
                            &all_cameras,
                            &all_points,
@@ -825,14 +833,14 @@ int main(int argc, char** argv) {
   // declare which intrinsics need to be refined and in this case
   // refining flags does not depend on problem at all.
   int bundle_intrinsics = BUNDLE_NO_INTRINSICS;
-  if (CERES_GET_FLAG(FLAGS_refine_intrinsics).empty()) {
+  if (absl::GetFlag(FLAGS_refine_intrinsics).empty()) {
     if (is_image_space) {
       bundle_intrinsics = BUNDLE_FOCAL_LENGTH | BUNDLE_RADIAL;
     }
   } else {
-    if (CERES_GET_FLAG(FLAGS_refine_intrinsics) == "radial") {
+    if (absl::GetFlag(FLAGS_refine_intrinsics) == "radial") {
       bundle_intrinsics = BUNDLE_FOCAL_LENGTH | BUNDLE_RADIAL;
-    } else if (CERES_GET_FLAG(FLAGS_refine_intrinsics) != "none") {
+    } else if (absl::GetFlag(FLAGS_refine_intrinsics) != "none") {
       LOG(ERROR) << "Unsupported value for refine-intrinsics";
       return EXIT_FAILURE;
     }

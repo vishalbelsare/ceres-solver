@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,33 +33,35 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "ceres/autodiff_cost_function.h"
 #include "ceres/evaluation_callback.h"
-#include "ceres/local_parameterization.h"
 #include "ceres/manifold.h"
 #include "ceres/problem.h"
 #include "ceres/problem_impl.h"
 #include "ceres/sized_cost_function.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
-using std::string;
+using ::testing::Each;
+using ::testing::IsEmpty;
 
 TEST(SolverOptions, DefaultTrustRegionOptionsAreValid) {
   Solver::Options options;
   options.minimizer_type = TRUST_REGION;
-  string error;
+  std::string error;
   EXPECT_TRUE(options.IsValid(&error)) << error;
 }
 
 TEST(SolverOptions, DefaultLineSearchOptionsAreValid) {
   Solver::Options options;
   options.minimizer_type = LINE_SEARCH;
-  string error;
+  std::string error;
   EXPECT_TRUE(options.IsValid(&error)) << error;
 }
 
@@ -118,9 +120,7 @@ TEST(Solver, UpdateStateEveryIterationOptionNoEvaluationCallback) {
   num_iterations =
       summary.num_successful_steps + summary.num_unsuccessful_steps;
   EXPECT_GT(num_iterations, 1);
-  for (double value : callback.x_values) {
-    EXPECT_EQ(50.0, value);
-  }
+  EXPECT_THAT(callback.x_values, Each(50.0));
 
   // Second: update_state_every_iteration=true, evaluation_callback=nullptr.
   x = 50.0;
@@ -130,8 +130,9 @@ TEST(Solver, UpdateStateEveryIterationOptionNoEvaluationCallback) {
   num_iterations =
       summary.num_successful_steps + summary.num_unsuccessful_steps;
   EXPECT_GT(num_iterations, 1);
-  EXPECT_EQ(original_x, callback.x_values[0]);
-  EXPECT_NE(original_x, callback.x_values[1]);
+  ASSERT_GE(callback.x_values.size(), 2);
+  EXPECT_EQ(callback.x_values[0], original_x);
+  EXPECT_NE(callback.x_values[1], original_x);
 }
 
 TEST(Solver, UpdateStateEveryIterationOptionWithEvaluationCallback) {
@@ -162,8 +163,9 @@ TEST(Solver, UpdateStateEveryIterationOptionWithEvaluationCallback) {
   num_iterations =
       summary.num_successful_steps + summary.num_unsuccessful_steps;
   EXPECT_GT(num_iterations, 1);
-  EXPECT_EQ(original_x, callback.x_values[0]);
-  EXPECT_NE(original_x, callback.x_values[1]);
+  ASSERT_GE(callback.x_values.size(), 2);
+  EXPECT_EQ(callback.x_values[0], original_x);
+  EXPECT_NE(callback.x_values[1], original_x);
 
   // Second: update_state_every_iteration=false, evaluation_callback=!nullptr.
   x = 50.0;
@@ -173,8 +175,9 @@ TEST(Solver, UpdateStateEveryIterationOptionWithEvaluationCallback) {
   num_iterations =
       summary.num_successful_steps + summary.num_unsuccessful_steps;
   EXPECT_GT(num_iterations, 1);
-  EXPECT_EQ(original_x, callback.x_values[0]);
-  EXPECT_NE(original_x, callback.x_values[1]);
+  ASSERT_GE(callback.x_values.size(), 2);
+  EXPECT_EQ(callback.x_values[0], original_x);
+  EXPECT_NE(callback.x_values[1], original_x);
 }
 
 TEST(Solver, CantMixEvaluationCallbackWithInnerIterations) {
@@ -314,160 +317,6 @@ TEST(Solver, LineSearchProblemIsConstant) {
   EXPECT_EQ(summary.final_cost, 1.0 / 2.0);
 }
 
-#if defined(CERES_NO_SUITESPARSE)
-TEST(Solver, SparseNormalCholeskyNoSuiteSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, SparseSchurNoSuiteSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
-  options.linear_solver_type = SPARSE_SCHUR;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-#endif
-
-#if defined(CERES_NO_CXSPARSE)
-TEST(Solver, SparseNormalCholeskyNoCXSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = CX_SPARSE;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, SparseSchurNoCXSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = CX_SPARSE;
-  options.linear_solver_type = SPARSE_SCHUR;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-#endif
-
-#if defined(CERES_NO_ACCELERATE_SPARSE)
-TEST(Solver, SparseNormalCholeskyNoAccelerateSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, SparseSchurNoAccelerateSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
-  options.linear_solver_type = SPARSE_SCHUR;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-#else
-TEST(Solver, DynamicSparseNormalCholeskyUnsupportedWithAccelerateSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  options.dynamic_sparsity = true;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-#endif
-
-#if !defined(CERES_USE_EIGEN_SPARSE)
-TEST(Solver, SparseNormalCholeskyNoEigenSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, SparseSchurNoEigenSparse) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
-  options.linear_solver_type = SPARSE_SCHUR;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-#endif
-
-TEST(Solver, SparseNormalCholeskyNoSparseLibrary) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = NO_SPARSE;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, SparseSchurNoSparseLibrary) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = NO_SPARSE;
-  options.linear_solver_type = SPARSE_SCHUR;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, IterativeSchurWithClusterJacobiPerconditionerNoSparseLibrary) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = NO_SPARSE;
-  options.linear_solver_type = ITERATIVE_SCHUR;
-  // Requires SuiteSparse.
-  options.preconditioner_type = CLUSTER_JACOBI;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver,
-     IterativeSchurWithClusterTridiagonalPerconditionerNoSparseLibrary) {
-  Solver::Options options;
-  options.sparse_linear_algebra_library_type = NO_SPARSE;
-  options.linear_solver_type = ITERATIVE_SCHUR;
-  // Requires SuiteSparse.
-  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
-  string message;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, IterativeLinearSolverForDogleg) {
-  Solver::Options options;
-  options.trust_region_strategy_type = DOGLEG;
-  string message;
-  options.linear_solver_type = ITERATIVE_SCHUR;
-  EXPECT_FALSE(options.IsValid(&message));
-
-  options.linear_solver_type = CGNR;
-  EXPECT_FALSE(options.IsValid(&message));
-}
-
-TEST(Solver, LinearSolverTypeNormalOperation) {
-  Solver::Options options;
-  options.linear_solver_type = DENSE_QR;
-
-  string message;
-  EXPECT_TRUE(options.IsValid(&message));
-
-  options.linear_solver_type = DENSE_NORMAL_CHOLESKY;
-  EXPECT_TRUE(options.IsValid(&message));
-
-  options.linear_solver_type = DENSE_SCHUR;
-  EXPECT_TRUE(options.IsValid(&message));
-
-  options.linear_solver_type = SPARSE_SCHUR;
-#if defined(CERES_NO_SUITESPARSE) && defined(CERES_NO_CXSPARSE) && \
-    !defined(CERES_USE_EIGEN_SPARSE)
-  EXPECT_FALSE(options.IsValid(&message));
-#else
-  EXPECT_TRUE(options.IsValid(&message));
-#endif
-
-  options.linear_solver_type = ITERATIVE_SCHUR;
-  EXPECT_TRUE(options.IsValid(&message));
-}
-
 template <int kNumResiduals, int... Ns>
 class DummyCostFunction : public SizedCostFunction<kNumResiduals, Ns...> {
  public:
@@ -491,11 +340,11 @@ TEST(Solver, FixedCostForConstantProblem) {
   Solver::Options options;
   Solver::Summary summary;
   Solve(options, &problem, &summary);
-  EXPECT_TRUE(summary.IsSolutionUsable());
+  EXPECT_TRUE(summary.IsSolutionUsable()) << summary.message;
   EXPECT_EQ(summary.fixed_cost, expected_cost);
   EXPECT_EQ(summary.initial_cost, expected_cost);
   EXPECT_EQ(summary.final_cost, expected_cost);
-  EXPECT_EQ(summary.iterations.size(), 0);
+  EXPECT_THAT(summary.iterations, IsEmpty());
 }
 
 struct LinearCostFunction {
@@ -510,26 +359,6 @@ struct LinearCostFunction {
         new LinearCostFunction);
   }
 };
-
-TEST(Solver, ZeroSizedLocalParameterizationHoldsParameterBlockConstant) {
-  double x = 0.0;
-  double y = 1.0;
-  Problem problem;
-  problem.AddResidualBlock(LinearCostFunction::Create(), nullptr, &x, &y);
-  problem.SetParameterization(&y, new SubsetParameterization(1, {0}));
-  EXPECT_TRUE(problem.IsParameterBlockConstant(&y));
-
-  Solver::Options options;
-  options.function_tolerance = 0.0;
-  options.gradient_tolerance = 0.0;
-  options.parameter_tolerance = 0.0;
-  Solver::Summary summary;
-  Solve(options, &problem, &summary);
-
-  EXPECT_EQ(summary.termination_type, CONVERGENCE);
-  EXPECT_NEAR(x, 10.0, 1e-7);
-  EXPECT_EQ(y, 1.0);
-}
 
 TEST(Solver, ZeroSizedManifoldHoldsParameterBlockConstant) {
   double x = 0.0;
@@ -551,5 +380,971 @@ TEST(Solver, ZeroSizedManifoldHoldsParameterBlockConstant) {
   EXPECT_EQ(y, 1.0);
 }
 
-}  // namespace internal
-}  // namespace ceres
+TEST(Solver, RepeatedSolvePreservesCallerLinearSolverOrdering) {
+  double x = 0.0;
+  double y = 0.0;
+  Problem problem;
+  problem.AddResidualBlock(QuadraticCostFunctor::Create(), nullptr, &x);
+  problem.AddResidualBlock(QuadraticCostFunctor::Create(), nullptr, &y);
+
+  Solver::Options options;
+  options.linear_solver_type = DENSE_SCHUR;
+  options.dense_linear_algebra_library_type = EIGEN;
+  options.function_tolerance = 0.0;
+  options.parameter_tolerance = 1e-12;
+  options.linear_solver_ordering = std::make_shared<ParameterBlockOrdering>();
+  options.linear_solver_ordering->AddElementToGroup(&x, 0);
+  options.linear_solver_ordering->AddElementToGroup(&y, 1);
+
+  // Fix x first; preprocessing must preserve its caller group.
+  problem.SetParameterBlockConstant(&x);
+  Solver::Summary summary;
+  Solve(options, &problem, &summary);
+  EXPECT_EQ(summary.termination_type, CONVERGENCE) << summary.message;
+  EXPECT_EQ(x, 0.0);
+  EXPECT_NEAR(y, 5.0, 1e-10);
+  EXPECT_EQ(options.linear_solver_ordering->GroupId(&x), 0);
+  EXPECT_EQ(options.linear_solver_ordering->GroupId(&y), 1);
+
+  // Re-enable x and solve with the same caller ordering.
+  problem.SetParameterBlockVariable(&x);
+  y = 0.0;
+  Solve(options, &problem, &summary);
+  EXPECT_EQ(summary.termination_type, CONVERGENCE) << summary.message;
+  EXPECT_NEAR(x, 5.0, 1e-10);
+  EXPECT_NEAR(y, 5.0, 1e-10);
+  EXPECT_EQ(options.linear_solver_ordering->GroupId(&x), 0);
+  EXPECT_EQ(options.linear_solver_ordering->GroupId(&y), 1);
+
+  // Check that a later solve also works without a supplied ordering.
+  options.linear_solver_ordering = nullptr;
+  x = 0.0;
+  y = 0.0;
+  Solve(options, &problem, &summary);
+  EXPECT_EQ(summary.termination_type, CONVERGENCE) << summary.message;
+  EXPECT_NEAR(x, 5.0, 1e-10);
+  EXPECT_NEAR(y, 5.0, 1e-10);
+}
+
+TEST(Solver, RepeatedSolvePreservesCallerInnerIterationOrdering) {
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+  Problem problem;
+  problem.AddResidualBlock(QuadraticCostFunctor::Create(), nullptr, &x);
+  problem.AddResidualBlock(QuadraticCostFunctor::Create(), nullptr, &y);
+  problem.AddResidualBlock(QuadraticCostFunctor::Create(), nullptr, &z);
+
+  Solver::Options options;
+  options.linear_solver_type = DENSE_QR;
+  options.use_inner_iterations = true;
+  options.function_tolerance = 0.0;
+  options.parameter_tolerance = 1e-12;
+  options.inner_iteration_ordering = std::make_shared<ParameterBlockOrdering>();
+  options.inner_iteration_ordering->AddElementToGroup(&x, 0);
+  options.inner_iteration_ordering->AddElementToGroup(&y, 1);
+  options.inner_iteration_ordering->AddElementToGroup(&z, 2);
+
+  // Fix x first; preprocessing must preserve its caller group.
+  problem.SetParameterBlockConstant(&x);
+  Solver::Summary summary;
+  Solve(options, &problem, &summary);
+  EXPECT_EQ(summary.termination_type, CONVERGENCE) << summary.message;
+  EXPECT_EQ(x, 0.0);
+  EXPECT_NEAR(y, 5.0, 1e-10);
+  EXPECT_NEAR(z, 5.0, 1e-10);
+  EXPECT_EQ(options.inner_iteration_ordering->GroupId(&x), 0);
+  EXPECT_EQ(options.inner_iteration_ordering->GroupId(&y), 1);
+  EXPECT_EQ(options.inner_iteration_ordering->GroupId(&z), 2);
+
+  // Re-enable x and solve with the same caller ordering.
+  problem.SetParameterBlockVariable(&x);
+  y = 0.0;
+  z = 0.0;
+  Solve(options, &problem, &summary);
+  EXPECT_EQ(summary.termination_type, CONVERGENCE) << summary.message;
+  EXPECT_NEAR(x, 5.0, 1e-10);
+  EXPECT_NEAR(y, 5.0, 1e-10);
+  EXPECT_NEAR(z, 5.0, 1e-10);
+  EXPECT_EQ(options.inner_iteration_ordering->GroupId(&x), 0);
+  EXPECT_EQ(options.inner_iteration_ordering->GroupId(&y), 1);
+  EXPECT_EQ(options.inner_iteration_ordering->GroupId(&z), 2);
+}
+
+TEST(Solver, DenseNormalCholeskyOptions) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = DENSE_NORMAL_CHOLESKY;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dense_linear_algebra_library_type = EIGEN;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.use_mixed_precision_solves = true;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  if (IsDenseLinearAlgebraLibraryTypeAvailable(LAPACK)) {
+    options.use_mixed_precision_solves = false;
+    options.dense_linear_algebra_library_type = LAPACK;
+
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+    options.use_mixed_precision_solves = true;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  } else {
+    options.use_mixed_precision_solves = false;
+    options.dense_linear_algebra_library_type = LAPACK;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+}
+
+TEST(Solver, DenseQrOptions) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = DENSE_QR;
+
+  options.use_mixed_precision_solves = false;
+  options.dense_linear_algebra_library_type = EIGEN;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  if (IsDenseLinearAlgebraLibraryTypeAvailable(LAPACK)) {
+    options.use_mixed_precision_solves = false;
+    options.dense_linear_algebra_library_type = LAPACK;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+    options.use_mixed_precision_solves = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  } else {
+    options.use_mixed_precision_solves = false;
+    options.dense_linear_algebra_library_type = LAPACK;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+}
+
+TEST(Solver, SparseNormalCholeskyOptionsNoSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
+  options.sparse_linear_algebra_library_type = NO_SPARSE;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, SparseNormalCholeskyOptionsEigenSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
+  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
+  options.linear_solver_ordering_type = AMD;
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(EIGEN_SPARSE)) {
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  } else {
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(EIGEN_SPARSE)) {
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  }
+
+#ifndef CERES_NO_EIGEN_METIS
+  options.linear_solver_ordering_type = NESDIS;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(EIGEN_SPARSE)) {
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  }
+#else
+  options.linear_solver_ordering_type = NESDIS;
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  EXPECT_FALSE(options.IsValid(&message));
+#endif
+}
+
+TEST(Solver, SparseNormalCholeskyOptionsSuiteSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
+  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
+  options.linear_solver_ordering_type = AMD;
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  } else {
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+#ifdef CERES_NO_CHOLMOD_FLOAT
+    EXPECT_FALSE(options.IsValid(&message));
+#else
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+#endif
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+#ifdef CERES_NO_CHOLMOD_FLOAT
+    EXPECT_FALSE(options.IsValid(&message));
+#else
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+#endif
+  }
+
+#ifndef CERES_NO_CHOLMOD_PARTITION
+  options.linear_solver_ordering_type = NESDIS;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+#ifdef CERES_NO_CHOLMOD_FLOAT
+    EXPECT_FALSE(options.IsValid(&message));
+#else
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+#endif
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+#ifdef CERES_NO_CHOLMOD_FLOAT
+    EXPECT_FALSE(options.IsValid(&message));
+#else
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+#endif
+  }
+#else
+  options.linear_solver_ordering_type = NESDIS;
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  EXPECT_FALSE(options.IsValid(&message));
+#endif
+}
+
+TEST(Solver, SparseNormalCholeskyOptionsAccelerateSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
+  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
+  options.linear_solver_ordering_type = AMD;
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  } else {
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  options.linear_solver_ordering_type = NESDIS;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+}
+
+TEST(Solver, DenseSchurOptions) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = DENSE_SCHUR;
+  options.dense_linear_algebra_library_type = EIGEN;
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.use_mixed_precision_solves = true;
+  options.dynamic_sparsity = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.use_mixed_precision_solves = true;
+  options.dynamic_sparsity = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dense_linear_algebra_library_type = LAPACK;
+  if (IsDenseLinearAlgebraLibraryTypeAvailable(
+          options.dense_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+}
+
+TEST(Solver, SparseSchurOptionsNoSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_SCHUR;
+  options.sparse_linear_algebra_library_type = NO_SPARSE;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, SparseSchurOptionsEigenSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_SCHUR;
+  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
+  options.linear_solver_ordering_type = AMD;
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(EIGEN_SPARSE)) {
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  } else {
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(EIGEN_SPARSE)) {
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+#ifndef CERES_NO_EIGEN_METIS
+  options.linear_solver_ordering_type = NESDIS;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(EIGEN_SPARSE)) {
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+#else
+  options.linear_solver_ordering_type = NESDIS;
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  EXPECT_FALSE(options.IsValid(&message));
+#endif
+}
+
+TEST(Solver, SparseSchurOptionsSuiteSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_SCHUR;
+  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
+  options.linear_solver_ordering_type = AMD;
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  } else {
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+#ifdef CERES_NO_CHOLMOD_FLOAT
+    EXPECT_FALSE(options.IsValid(&message));
+#else
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+#endif
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+#ifndef CERES_NO_CHOLMOD_PARTITION
+  options.linear_solver_ordering_type = NESDIS;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+#ifdef CERES_NO_CHOLMOD_FLOAT
+    EXPECT_FALSE(options.IsValid(&message));
+#else
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+#endif
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+#else
+  options.linear_solver_ordering_type = NESDIS;
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  EXPECT_FALSE(options.IsValid(&message));
+#endif
+}
+
+TEST(Solver, SparseSchurOptionsAccelerateSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = SPARSE_SCHUR;
+  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
+  options.linear_solver_ordering_type = AMD;
+
+  options.use_mixed_precision_solves = false;
+  options.dynamic_sparsity = false;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+  } else {
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  options.linear_solver_ordering_type = NESDIS;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.use_mixed_precision_solves = false;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.use_mixed_precision_solves = true;
+    options.dynamic_sparsity = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+}
+
+TEST(Solver, CgnrOptionsIdentityPreconditioner) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = CGNR;
+  options.preconditioner_type = IDENTITY;
+  options.sparse_linear_algebra_library_type = NO_SPARSE;
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = CUDA_SPARSE;
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(CUDA_SPARSE));
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, CgnrOptionsJacobiPreconditioner) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = CGNR;
+  options.preconditioner_type = JACOBI;
+  options.sparse_linear_algebra_library_type = NO_SPARSE;
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = CUDA_SPARSE;
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(CUDA_SPARSE));
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, CgnrOptionsSubsetPreconditioner) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = CGNR;
+  options.preconditioner_type = SUBSET;
+
+  options.sparse_linear_algebra_library_type = NO_SPARSE;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.residual_blocks_for_subset_preconditioner.insert(nullptr);
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.dynamic_sparsity = false;
+    options.use_mixed_precision_solves = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.dynamic_sparsity = true;
+    options.use_mixed_precision_solves = false;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.dynamic_sparsity = false;
+    options.use_mixed_precision_solves = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.dynamic_sparsity = false;
+    options.use_mixed_precision_solves = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.dynamic_sparsity = true;
+    options.use_mixed_precision_solves = false;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.dynamic_sparsity = false;
+    options.use_mixed_precision_solves = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
+  if (IsSparseLinearAlgebraLibraryTypeAvailable(
+          options.sparse_linear_algebra_library_type)) {
+    options.dynamic_sparsity = false;
+    options.use_mixed_precision_solves = false;
+    EXPECT_TRUE(options.IsValid(&message)) << message;
+
+    options.dynamic_sparsity = true;
+    options.use_mixed_precision_solves = false;
+    EXPECT_FALSE(options.IsValid(&message));
+
+    options.dynamic_sparsity = false;
+    options.use_mixed_precision_solves = true;
+    EXPECT_FALSE(options.IsValid(&message));
+  }
+
+  options.sparse_linear_algebra_library_type = CUDA_SPARSE;
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = true;
+  options.use_mixed_precision_solves = false;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.dynamic_sparsity = false;
+  options.use_mixed_precision_solves = true;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, CgnrOptionsSchurPreconditioners) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = CGNR;
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, IterativeSchurOptionsNoSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = ITERATIVE_SCHUR;
+  options.sparse_linear_algebra_library_type = NO_SPARSE;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = SUBSET;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.use_explicit_schur_complement = true;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, IterativeSchurOptionsEigenSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = ITERATIVE_SCHUR;
+  options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(
+                options.sparse_linear_algebra_library_type));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(
+                options.sparse_linear_algebra_library_type));
+  options.preconditioner_type = SUBSET;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.use_explicit_schur_complement = true;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, IterativeSchurOptionsSuiteSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = ITERATIVE_SCHUR;
+  options.sparse_linear_algebra_library_type = SUITE_SPARSE;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(
+                options.sparse_linear_algebra_library_type));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(
+                options.sparse_linear_algebra_library_type));
+  options.preconditioner_type = SUBSET;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.use_explicit_schur_complement = true;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+TEST(Solver, IterativeSchurOptionsAccelerateSparse) {
+  std::string message;
+  Solver::Options options;
+  options.linear_solver_type = ITERATIVE_SCHUR;
+  options.sparse_linear_algebra_library_type = ACCELERATE_SPARSE;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(
+                options.sparse_linear_algebra_library_type));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_EQ(options.IsValid(&message),
+            IsSparseLinearAlgebraLibraryTypeAvailable(
+                options.sparse_linear_algebra_library_type));
+  options.preconditioner_type = SUBSET;
+  EXPECT_FALSE(options.IsValid(&message));
+
+  options.use_explicit_schur_complement = true;
+  options.preconditioner_type = IDENTITY;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = SCHUR_JACOBI;
+  EXPECT_TRUE(options.IsValid(&message)) << message;
+  options.preconditioner_type = CLUSTER_JACOBI;
+  EXPECT_FALSE(options.IsValid(&message));
+  options.preconditioner_type = CLUSTER_TRIDIAGONAL;
+  EXPECT_FALSE(options.IsValid(&message));
+}
+
+class LargeCostCostFunction : public SizedCostFunction<1, 1> {
+ public:
+  bool Evaluate(double const* const* parameters,
+                double* residuals,
+                double** jacobians) const override {
+    residuals[0] = 1e300;
+    if (jacobians && jacobians[0]) {
+      jacobians[0][0] = 1.0;
+    }
+    return true;
+  }
+};
+
+TEST(Solver, LargeCostProblem) {
+  double x = 1;
+  Problem problem;
+  problem.AddResidualBlock(new LargeCostCostFunction, nullptr, &x);
+  Solver::Options options;
+  Solver::Summary summary;
+  Solve(options, &problem, &summary);
+  LOG(INFO) << summary.FullReport();
+  EXPECT_EQ(summary.termination_type, FAILURE);
+}
+
+}  // namespace ceres::internal

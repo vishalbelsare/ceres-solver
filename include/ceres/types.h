@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -59,26 +59,25 @@ enum LinearSolverType {
   // normal equations A'A x = A'b. They are direct solvers and do not
   // assume any special problem structure.
 
-  // Solve the normal equations using a dense Cholesky solver; based
+  // Solve the normal equations using a dense Cholesky solver based
   // on Eigen.
   DENSE_NORMAL_CHOLESKY,
 
-  // Solve the normal equations using a dense QR solver; based on
+  // Solve the normal equations using a dense QR solver based on
   // Eigen.
   DENSE_QR,
 
-  // Solve the normal equations using a sparse cholesky solver; requires
-  // SuiteSparse or CXSparse.
+  // Solve the normal equations using a sparse Cholesky solver.
   SPARSE_NORMAL_CHOLESKY,
 
   // Specialized solvers, specific to problems with a generalized
-  // bi-partitite structure.
+  // bipartite structure.
 
-  // Solves the reduced linear system using a dense Cholesky solver;
+  // Solves the reduced linear system using a dense Cholesky solver
   // based on Eigen.
   DENSE_SCHUR,
 
-  // Solves the reduced linear system using a sparse Cholesky solver;
+  // Solves the reduced linear system using a sparse Cholesky solver
   // based on CHOLMOD.
   SPARSE_SCHUR,
 
@@ -98,13 +97,17 @@ enum PreconditionerType {
   // Block diagonal of the Gauss-Newton Hessian.
   JACOBI,
 
-  // Note: The following three preconditioners can only be used with
+  // Note: The following four preconditioners can only be used with
   // the ITERATIVE_SCHUR solver. They are well suited for Structure
   // from Motion problems.
 
   // Block diagonal of the Schur complement. This preconditioner may
   // only be used with the ITERATIVE_SCHUR solver.
   SCHUR_JACOBI,
+
+  // Use power series expansion to approximate the inversion of the Schur
+  // complement as a preconditioner.
+  SCHUR_POWER_SERIES_EXPANSION,
 
   // Visibility clustering based preconditioners.
   //
@@ -115,7 +118,7 @@ enum PreconditionerType {
   CLUSTER_JACOBI,
   CLUSTER_TRIDIAGONAL,
 
-  // Subset preconditioner is a general purpose preconditioner
+  // Subset preconditioner is a general purpose preconditioner for
   // linear least squares problems. Given a set of residual blocks,
   // it uses the corresponding subset of the rows of the Jacobian to
   // construct a preconditioner.
@@ -134,7 +137,7 @@ enum PreconditionerType {
   // well the matrix Q approximates J'J, or how well the chosen
   // residual blocks approximate the non-linear least squares
   // problem.
-  SUBSET,
+  SUBSET
 };
 
 enum VisibilityClusteringType {
@@ -165,11 +168,6 @@ enum SparseLinearAlgebraLibraryType {
   // minimum degree ordering.
   SUITE_SPARSE,
 
-  // A lightweight replacement for SuiteSparse, which does not require
-  // a LAPACK/BLAS implementation. Consequently, its performance is
-  // also a bit lower than SuiteSparse.
-  CX_SPARSE,
-
   // Eigen's sparse linear algebra routines. In particular Ceres uses
   // the Simplicial LDLT routines.
   EIGEN_SPARSE,
@@ -177,27 +175,61 @@ enum SparseLinearAlgebraLibraryType {
   // Apple's Accelerate framework sparse linear algebra routines.
   ACCELERATE_SPARSE,
 
+  // Nvidia's cuDSS and cuSPARSE libraries.
+  CUDA_SPARSE,
+
   // No sparse linear solver should be used.  This does not necessarily
   // imply that Ceres was built without any sparse library, although that
   // is the likely use case, merely that one should not be used.
   NO_SPARSE
 };
 
+// The order in which variables are eliminated in a linear solver
+// can have a significant impact on the efficiency and accuracy
+// of the method. e.g., when doing sparse Cholesky factorization,
+// there are matrices for which a good ordering will give a
+// Cholesky factor with O(n) storage, whereas a bad ordering will
+// result in a completely dense factor.
+//
+// So sparse direct solvers like SPARSE_NORMAL_CHOLESKY and
+// SPARSE_SCHUR and preconditioners like SUBSET, CLUSTER_JACOBI &
+// CLUSTER_TRIDIAGONAL use a fill reducing ordering of the columns and
+// rows of the matrix being factorized before computing the numeric
+// factorization.
+//
+// This enum controls the class of algorithm used to compute this
+// fill reducing ordering. There is no single algorithm that works
+// on all matrices, so determining which algorithm works better is a
+// matter of empirical experimentation.
+enum LinearSolverOrderingType {
+  // Approximate Minimum Degree.
+  AMD,
+  // Nested Dissection.
+  NESDIS
+};
+
+// Available dense linear algebra libraries.
 enum DenseLinearAlgebraLibraryType {
+  // Eigen's dense linear algebra routines.
   EIGEN,
+  // System BLAS + LAPACK.
   LAPACK,
+  // Nvidia's cuSOLVER + cuBLAS.
   CUDA,
 };
 
-// Logging options
+// Logging options.
 // The options get progressively noisier.
 enum LoggingType {
   SILENT,
   PER_MINIMIZER_ITERATION,
 };
 
+// Minimizer types.
 enum MinimizerType {
+  // Line search based minimizer.
   LINE_SEARCH,
+  // Trust region based minimizer.
   TRUST_REGION,
 };
 
@@ -209,14 +241,14 @@ enum LineSearchDirectionType {
   // functions. The generalization can be performed in a number of
   // different ways, resulting in a variety of search directions. The
   // precise choice of the non-linear conjugate gradient algorithm
-  // used is determined by NonlinerConjuateGradientType.
+  // used is determined by NonlinearConjugateGradientType.
   NONLINEAR_CONJUGATE_GRADIENT,
 
-  // BFGS, and it's limited memory approximation L-BFGS, are quasi-Newton
+  // BFGS, and its limited memory approximation L-BFGS, are quasi-Newton
   // algorithms that approximate the Hessian matrix by iteratively refining
   // an initial estimate with rank-one updates using the gradient at each
-  // iteration. They are a generalisation of the Secant method and satisfy
-  // the Secant equation.  The Secant equation has an infinium of solutions
+  // iteration. They are a generalization of the Secant method and satisfy
+  // the Secant equation.  The Secant equation has an infinitum of solutions
   // in multiple dimensions, as there are N*(N+1)/2 degrees of freedom in a
   // symmetric matrix but only N conditions are specified by the Secant
   // equation. The requirement that the Hessian approximation be positive
@@ -281,10 +313,12 @@ enum NonlinearConjugateGradientType {
   HESTENES_STIEFEL,
 };
 
+// Line search algorithms.
 enum LineSearchType {
   // Backtracking line search with polynomial interpolation or
   // bisection.
   ARMIJO,
+  // Line search satisfying the Wolfe conditions.
   WOLFE,
 };
 
@@ -332,19 +366,19 @@ enum DoglegType {
 };
 
 enum TerminationType {
-  // Minimizer terminated because one of the convergence criterion set
+  // Minimizer terminated because one of the convergence criteria set
   // by the user was satisfied.
   //
-  // 1.  (new_cost - old_cost) < function_tolerance * old_cost;
-  // 2.  max_i |gradient_i| < gradient_tolerance
-  // 3.  |step|_2 <= parameter_tolerance * ( |x|_2 +  parameter_tolerance)
+  // 1.  (old_cost - new_cost) < function_tolerance * old_cost;
+  // 2.  max_i |x_i - Project(Plus(x, -g))_i| < gradient_tolerance
+  // 3.  |step|_2 <= parameter_tolerance * (|x|_2 + parameter_tolerance)
   //
   // The user's parameter blocks will be updated with the solution.
   CONVERGENCE,
 
   // The solver ran for maximum number of iterations or maximum amount
   // of time specified by the user, but none of the convergence
-  // criterion specified by the user were met. The user's parameter
+  // criteria specified by the user were met. The user's parameter
   // blocks will be updated with the solution found so far.
   NO_CONVERGENCE,
 
@@ -362,7 +396,7 @@ enum TerminationType {
   // The user's parameter blocks will be updated with the solution.
   USER_SUCCESS,
 
-  // Minimizer terminated because because a user IterationCallback
+  // Minimizer terminated because a user IterationCallback
   // returned SOLVER_ABORT.
   //
   // The user's parameter blocks will not be updated.
@@ -379,7 +413,7 @@ enum CallbackReturnType {
 
   // Terminate solver, and do not update the parameter blocks upon
   // return. Unless the user has set
-  // Solver:Options:::update_state_every_iteration, in which case the
+  // Solver::Options::update_state_every_iteration, in which case the
   // state would have been updated every iteration
   // anyways. Solver::Summary::termination_type is set to USER_ABORT.
   SOLVER_ABORT,
@@ -411,7 +445,7 @@ enum DumpFormatType {
 
 // For SizedCostFunction and AutoDiffCostFunction, DYNAMIC can be
 // specified for the number of residuals. If specified, then the
-// number of residuas for that cost function can vary at runtime.
+// number of residuals for that cost function can vary at runtime.
 enum DimensionType {
   DYNAMIC = -1,
 };
@@ -431,12 +465,14 @@ enum NumericDiffMethodType {
   RIDDERS
 };
 
+// Type of polynomial used for interpolation during line search.
 enum LineSearchInterpolationType {
   BISECTION,
   QUADRATIC,
   CUBIC,
 };
 
+// Type of algorithm used for computing the covariance matrix.
 enum CovarianceAlgorithmType {
   DENSE_SVD,
   SPARSE_QR,
@@ -447,7 +483,7 @@ enum CovarianceAlgorithmType {
 // before passing them to user code. If on return an element of the
 // array still contains this value, we will assume that the user code
 // did not write to that memory location.
-const double kImpossibleValue = 1e302;
+inline constexpr double kImpossibleValue = 1e302;
 
 CERES_EXPORT const char* LinearSolverTypeToString(LinearSolverType type);
 CERES_EXPORT bool StringToLinearSolverType(std::string value,
@@ -466,6 +502,11 @@ CERES_EXPORT const char* SparseLinearAlgebraLibraryTypeToString(
     SparseLinearAlgebraLibraryType type);
 CERES_EXPORT bool StringToSparseLinearAlgebraLibraryType(
     std::string value, SparseLinearAlgebraLibraryType* type);
+
+CERES_EXPORT const char* LinearSolverOrderingTypeToString(
+    LinearSolverOrderingType type);
+CERES_EXPORT bool StringToLinearSolverOrderingType(
+    std::string value, LinearSolverOrderingType* type);
 
 CERES_EXPORT const char* DenseLinearAlgebraLibraryTypeToString(
     DenseLinearAlgebraLibraryType type);
@@ -513,12 +554,11 @@ CERES_EXPORT bool StringToNumericDiffMethodType(std::string value,
                                                 NumericDiffMethodType* type);
 
 CERES_EXPORT const char* LoggingTypeToString(LoggingType type);
-CERES_EXPORT bool StringtoLoggingType(std::string value, LoggingType* type);
+CERES_EXPORT bool StringToLoggingType(std::string value, LoggingType* type);
 
 CERES_EXPORT const char* DumpFormatTypeToString(DumpFormatType type);
-CERES_EXPORT bool StringtoDumpFormatType(std::string value,
+CERES_EXPORT bool StringToDumpFormatType(std::string value,
                                          DumpFormatType* type);
-CERES_EXPORT bool StringtoDumpFormatType(std::string value, LoggingType* type);
 
 CERES_EXPORT const char* TerminationTypeToString(TerminationType type);
 

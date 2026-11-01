@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,20 +31,19 @@
 #ifndef CERES_INTERNAL_COVARIANCE_IMPL_H_
 #define CERES_INTERNAL_COVARIANCE_IMPL_H_
 
-#include <map>
 #include <memory>
-#include <set>
 #include <utility>
 #include <vector>
 
+#include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
 #include "ceres/covariance.h"
 #include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/export.h"
 #include "ceres/problem_impl.h"
 #include "ceres/suitesparse.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 class CompressedRowSparseMatrix;
 
@@ -91,13 +90,12 @@ class CERES_NO_EXPORT CovarianceImpl {
   Problem::EvaluateOptions evaluate_options_;
   bool is_computed_;
   bool is_valid_;
-  std::map<const double*, int> parameter_block_to_row_index_;
-  std::set<const double*> constant_parameter_blocks_;
+  absl::btree_map<const double*, int> parameter_block_to_row_index_;
+  absl::btree_set<const double*> constant_parameter_blocks_;
   std::unique_ptr<CompressedRowSparseMatrix> covariance_matrix_;
 };
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #include "ceres/internal/reenable_warnings.h"
 

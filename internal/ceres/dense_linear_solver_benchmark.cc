@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2026 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,16 +34,14 @@
 #include "ceres/dense_sparse_matrix.h"
 #include "ceres/internal/config.h"
 #include "ceres/linear_solver.h"
-#include "ceres/random.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 template <ceres::DenseLinearAlgebraLibraryType kLibraryType,
           ceres::LinearSolverType kSolverType>
 static void BM_DenseSolver(benchmark::State& state) {
-  const int num_rows = state.range(0);
-  const int num_cols = state.range(1);
+  const int num_rows = static_cast<int>(state.range(0));
+  const int num_cols = static_cast<int>(state.range(1));
   DenseSparseMatrix jacobian(num_rows, num_cols);
   *jacobian.mutable_matrix() = Eigen::MatrixXd::Random(num_rows, num_cols);
   Eigen::VectorXd rhs = Eigen::VectorXd::Random(num_rows, 1);
@@ -66,7 +64,7 @@ static void BM_DenseSolver(benchmark::State& state) {
 }
 
 // Some reasonable matrix sizes. I picked them out of thin air.
-static void MatrixSizes(benchmark::internal::Benchmark* b) {
+const auto MatrixSizes = [](auto* b) {
   // {num_rows, num_cols}
   b->Args({1, 1});
   b->Args({2, 1});
@@ -84,7 +82,7 @@ static void MatrixSizes(benchmark::internal::Benchmark* b) {
   b->Args({400, 20});
   b->Args({600, 22});
   b->Args({800, 25});
-}
+};
 
 BENCHMARK_TEMPLATE2(BM_DenseSolver, ceres::EIGEN, ceres::DENSE_QR)
     ->Apply(MatrixSizes);
@@ -105,7 +103,6 @@ BENCHMARK_TEMPLATE2(BM_DenseSolver, ceres::CUDA, ceres::DENSE_QR)
     ->Apply(MatrixSizes);
 #endif  // CERES_NO_CUDA
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 BENCHMARK_MAIN();

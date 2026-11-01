@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,8 @@
 #ifndef CERES_PUBLIC_INTERNAL_JET_TRAITS_H_
 #define CERES_PUBLIC_INTERNAL_JET_TRAITS_H_
 
+// IWYU pragma: private, include "ceres/jet.h"
+
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -41,17 +43,6 @@
 
 namespace ceres {
 namespace internal {
-
-// Predicate that determines whether T is a Jet.
-template <typename T, typename E = void>
-struct IsJet : std::false_type {};
-
-template <typename T, int N>
-struct IsJet<Jet<T, N>> : std::true_type {};
-
-// Convenience variable template for IsJet.
-template <typename T>
-constexpr bool IsJet_v = IsJet<T>::value;
 
 // Predicate that determines whether any of the Types is a Jet.
 template <typename... Types>
@@ -65,7 +56,7 @@ struct AreAnyJet<Jet<T, N>, Types...> : std::true_type {};
 
 // Convenience variable template for AreAnyJet.
 template <typename... Types>
-constexpr bool AreAnyJet_v = AreAnyJet<Types...>::value;
+inline constexpr bool AreAnyJet_v = AreAnyJet<Types...>::value;
 
 // Extracts the underlying floating-point from a type T.
 template <typename T, typename E = void>
@@ -84,27 +75,8 @@ using UnderlyingScalar_t = typename UnderlyingScalar<T>::type;
 //
 // Specifically, the predicate applies std::is_same recursively to pairs of
 // Types in the pack.
-//
-// The predicate is defined only for template packs containing at least two
-// types.
-template <typename T1, typename T2, typename... Types>
-// clang-format off
-struct AreAllSame : std::integral_constant
-<
-    bool,
-    AreAllSame<T1, T2>::value &&
-    AreAllSame<T2, Types...>::value
->
-// clang-format on
-{};
-
-// AreAllSame pairwise test.
-template <typename T1, typename T2>
-struct AreAllSame<T1, T2> : std::is_same<T1, T2> {};
-
-// Convenience variable template for AreAllSame.
-template <typename... Types>
-constexpr bool AreAllSame_v = AreAllSame<Types...>::value;
+template <typename T1, typename... Types>
+inline constexpr bool AreAllSame_v = (std::is_same<T1, Types>::value && ...);
 
 // Determines the rank of a type. This allows to ensure that types passed as
 // arguments are compatible to each other. The rank of Jet is determined by the
@@ -115,7 +87,7 @@ struct Rank : std::integral_constant<int, -1> {};
 
 // The rank of a scalar is 0.
 template <typename T>
-struct Rank<T, std::enable_if_t<std::is_scalar<T>::value>>
+struct Rank<T, std::enable_if_t<std::is_scalar_v<T>>>
     : std::integral_constant<int, 0> {};
 
 // The rank of a Jet is given by its dimensionality.
@@ -124,7 +96,7 @@ struct Rank<Jet<T, N>> : std::integral_constant<int, N> {};
 
 // Convenience variable template for Rank.
 template <typename T>
-constexpr int Rank_v = Rank<T>::value;
+inline constexpr int Rank_v = Rank<T>::value;
 
 // Constructs an integer sequence of ranks for each of the Types in the pack.
 template <typename... Types>
@@ -186,7 +158,8 @@ struct CompatibleJetOperands<> : std::false_type {};
 // This trait is a candidate for a concept definition once C++20 features can
 // be used.
 template <typename... Types>
-constexpr bool CompatibleJetOperands_v = CompatibleJetOperands<Types...>::value;
+inline constexpr bool CompatibleJetOperands_v =
+    CompatibleJetOperands<Types...>::value;
 
 // Type trait ensuring at least one of the types is a Jet,
 // the underlying scalar types are compatible among each other and Jet
@@ -216,7 +189,8 @@ struct PromotableJetOperands : std::integral_constant
 // This trait is a candidate for a concept definition once C++20 features can
 // be used.
 template <typename... Types>
-constexpr bool PromotableJetOperands_v = PromotableJetOperands<Types...>::value;
+inline constexpr bool PromotableJetOperands_v =
+    PromotableJetOperands<Types...>::value;
 
 }  // namespace ceres
 

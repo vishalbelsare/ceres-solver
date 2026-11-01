@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -42,13 +42,12 @@
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/casts.h"
 #include "ceres/context_impl.h"
-#include "ceres/internal/eigen.h"
+#include "ceres/eigen.h"
 #include "ceres/linear_least_squares_problems.h"
 #include "ceres/linear_solver.h"
 #include "ceres/schur_eliminator.h"
 #include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
@@ -64,7 +63,7 @@ class IterativeSchurComplementSolverTest : public ::testing::Test {
     std::unique_ptr<LinearLeastSquaresProblem> problem =
         CreateLinearLeastSquaresProblemFromId(problem_id);
 
-    CHECK(problem != nullptr);
+    ASSERT_TRUE(problem != nullptr);
     A_.reset(down_cast<BlockSparseMatrix*>(problem->A.release()));
     b_ = std::move(problem->b);
     D_ = std::move(problem->D);
@@ -74,7 +73,9 @@ class IterativeSchurComplementSolverTest : public ::testing::Test {
     num_eliminate_blocks_ = problem->num_eliminate_blocks;
   }
 
-  AssertionResult TestSolver(double* D) {
+  AssertionResult TestSolver(double* D,
+                             PreconditionerType preconditioner_type,
+                             bool use_spse_initialization) {
     TripletSparseMatrix triplet_A(
         A_->num_rows(), A_->num_cols(), A_->num_nonzeros());
     A_->ToTripletSparseMatrix(&triplet_A);
@@ -95,7 +96,9 @@ class IterativeSchurComplementSolverTest : public ::testing::Test {
     options.elimination_groups.push_back(num_eliminate_blocks_);
     options.elimination_groups.push_back(0);
     options.max_num_iterations = num_cols_;
-    options.preconditioner_type = SCHUR_JACOBI;
+    options.max_num_spse_iterations = 1;
+    options.use_spse_initialization = use_spse_initialization;
+    options.preconditioner_type = preconditioner_type;
     IterativeSchurComplementSolver isc(options);
 
     Vector isc_sol(num_cols_);
@@ -119,16 +122,30 @@ class IterativeSchurComplementSolverTest : public ::testing::Test {
   std::unique_ptr<double[]> D_;
 };
 
-TEST_F(IterativeSchurComplementSolverTest, NormalProblem) {
+TEST_F(IterativeSchurComplementSolverTest, NormalProblemSchurJacobi) {
   SetUpProblem(2);
-  EXPECT_TRUE(TestSolver(nullptr));
-  EXPECT_TRUE(TestSolver(D_.get()));
+  EXPECT_TRUE(TestSolver(nullptr, SCHUR_JACOBI, false));
+  EXPECT_TRUE(TestSolver(D_.get(), SCHUR_JACOBI, false));
+}
+
+TEST_F(IterativeSchurComplementSolverTest,
+       NormalProblemSchurJacobiWithPowerSeriesExpansionInitialization) {
+  SetUpProblem(2);
+  EXPECT_TRUE(TestSolver(nullptr, SCHUR_JACOBI, true));
+  EXPECT_TRUE(TestSolver(D_.get(), SCHUR_JACOBI, true));
+}
+
+TEST_F(IterativeSchurComplementSolverTest,
+       NormalProblemPowerSeriesExpansionPreconditioner) {
+  SetUpProblem(5);
+  EXPECT_TRUE(TestSolver(nullptr, SCHUR_POWER_SERIES_EXPANSION, false));
+  EXPECT_TRUE(TestSolver(D_.get(), SCHUR_POWER_SERIES_EXPANSION, false));
 }
 
 TEST_F(IterativeSchurComplementSolverTest, ProblemWithNoFBlocks) {
   SetUpProblem(3);
-  EXPECT_TRUE(TestSolver(nullptr));
-  EXPECT_TRUE(TestSolver(D_.get()));
+  EXPECT_TRUE(TestSolver(nullptr, SCHUR_JACOBI, false));
+  EXPECT_TRUE(TestSolver(D_.get(), SCHUR_JACOBI, false));
 }
 
 }  // namespace internal

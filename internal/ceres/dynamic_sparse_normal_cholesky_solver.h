@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -42,8 +42,7 @@
 #include "ceres/internal/export.h"
 #include "ceres/linear_solver.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 class CompressedRowSparseMatrix;
 
@@ -68,16 +67,15 @@ class CERES_NO_EXPORT DynamicSparseNormalCholeskySolver
   LinearSolver::Summary SolveImplUsingSuiteSparse(CompressedRowSparseMatrix* A,
                                                   double* rhs_and_solution);
 
-  LinearSolver::Summary SolveImplUsingCXSparse(CompressedRowSparseMatrix* A,
-                                               double* rhs_and_solution);
-
   LinearSolver::Summary SolveImplUsingEigen(CompressedRowSparseMatrix* A,
                                             double* rhs_and_solution);
+
+  LinearSolver::Summary SolveImplUsingCuda(CompressedRowSparseMatrix* A,
+                                           double* rhs_and_solution);
 
   const LinearSolver::Options options_;
 };
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #endif  // CERES_INTERNAL_DYNAMIC_SPARSE_NORMAL_CHOLESKY_SOLVER_H_

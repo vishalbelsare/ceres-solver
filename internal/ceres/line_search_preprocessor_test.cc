@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,15 +30,16 @@
 
 #include "ceres/line_search_preprocessor.h"
 
-#include <map>
+#include <limits>
 
+#include "ceres/preprocessor.h"
 #include "ceres/problem_impl.h"
 #include "ceres/sized_cost_function.h"
 #include "ceres/solver.h"
+#include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 TEST(LineSearchPreprocessor, ZeroProblem) {
   ProblemImpl problem;
@@ -46,7 +47,7 @@ TEST(LineSearchPreprocessor, ZeroProblem) {
   options.minimizer_type = LINE_SEARCH;
   LineSearchPreprocessor preprocessor;
   PreprocessedProblem pp;
-  EXPECT_TRUE(preprocessor.Preprocess(options, &problem, &pp));
+  EXPECT_TRUE(preprocessor.Preprocess(options, &problem, &pp)) << pp.error;
 }
 
 TEST(LineSearchPreprocessor, ProblemWithInvalidParameterBlock) {
@@ -103,7 +104,7 @@ TEST(LineSearchPreprocessor, RemoveParameterBlocksSucceeds) {
 
   LineSearchPreprocessor preprocessor;
   PreprocessedProblem pp;
-  EXPECT_TRUE(preprocessor.Preprocess(options, &problem, &pp));
+  EXPECT_TRUE(preprocessor.Preprocess(options, &problem, &pp)) << pp.error;
 }
 
 template <int kNumResiduals, int... Ns>
@@ -129,10 +130,9 @@ TEST(LineSearchPreprocessor, NormalOperation) {
 
   LineSearchPreprocessor preprocessor;
   PreprocessedProblem pp;
-  EXPECT_TRUE(preprocessor.Preprocess(options, &problem, &pp));
+  EXPECT_TRUE(preprocessor.Preprocess(options, &problem, &pp)) << pp.error;
   EXPECT_EQ(pp.evaluator_options.linear_solver_type, CGNR);
-  EXPECT_TRUE(pp.evaluator.get() != nullptr);
+  EXPECT_NE(pp.evaluator.get(), nullptr);
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

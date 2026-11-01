@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,9 +34,6 @@
 
 #ifndef CERES_PUBLIC_TINY_SOLVER_AUTODIFF_FUNCTION_H_
 #define CERES_PUBLIC_TINY_SOLVER_AUTODIFF_FUNCTION_H_
-
-#include <memory>
-#include <type_traits>
 
 #include "Eigen/Core"
 #include "ceres/jet.h"
@@ -103,10 +100,8 @@ namespace ceres {
 //   solver.Solve(f, &x);
 //
 // WARNING: The cost function adapter is not thread safe.
-template <typename CostFunctor,
-          int kNumResiduals,
-          int kNumParameters,
-          typename T = double>
+template <typename CostFunctor, int kNumResiduals, int kNumParameters,
+          typename T = double, int kMaxResiduals = kNumResiduals>
 class TinySolverAutoDiffFunction {
  public:
   // This class needs to have an Eigen aligned operator new as it contains
@@ -118,46 +113,52 @@ class TinySolverAutoDiffFunction {
     Initialize<kNumResiduals>(cost_functor);
   }
 
-  using Scalar = T;
   enum {
     NUM_PARAMETERS = kNumParameters,
     NUM_RESIDUALS = kNumResiduals,
+    MAX_NUM_RESIDUALS = kMaxResiduals,
   };
+  using Scalar = T;
+  using JacobianMatrix = typename Eigen::Matrix<Scalar,
+                                                NUM_RESIDUALS,
+                                                NUM_PARAMETERS,
+                                                0,
+                                                MAX_NUM_RESIDUALS>;
 
   // This is similar to AutoDifferentiate(), but since there is only one
   // parameter block it is easier to inline to avoid overhead.
   bool operator()(const T* parameters, T* residuals, T* jacobian) const {
     if (jacobian == nullptr) {
-      // No jacobian requested, so just directly call the cost function with
-      // doubles, skipping jets and derivatives.
+      // No Jacobian requested, so just directly call the cost function with
+      // doubles, skipping Jets and derivatives.
       return cost_functor_(parameters, residuals);
     }
-    // Initialize the input jets with passed parameters.
+    // Initialize the input Jets with passed parameters.
     for (int i = 0; i < kNumParameters; ++i) {
       jet_parameters_[i].a = parameters[i];  // Scalar part.
       jet_parameters_[i].v.setZero();        // Derivative part.
       jet_parameters_[i].v[i] = T(1.0);
     }
 
-    // Initialize the output jets such that we can detect user errors.
+    // Initialize the output Jets such that we can detect user errors.
     for (int i = 0; i < num_residuals_; ++i) {
       jet_residuals_[i].a = kImpossibleValue;
       jet_residuals_[i].v.setConstant(kImpossibleValue);
     }
 
-    // Execute the cost function, but with jets to find the derivative.
+    // Execute the cost function, but with Jets to find the derivative.
     if (!cost_functor_(jet_parameters_, jet_residuals_.data())) {
       return false;
     }
 
-    // Copy the jacobian out of the derivative part of the residual jets.
-    Eigen::Map<Eigen::Matrix<T, kNumResiduals, kNumParameters>> jacobian_matrix(
+    // Copy the Jacobian out of the derivative part of the residual Jets.
+    Eigen::Map<JacobianMatrix> jacobian_matrix(
         jacobian, num_residuals_, kNumParameters);
     for (int r = 0; r < num_residuals_; ++r) {
       residuals[r] = jet_residuals_[r].a;
       // Note that while this looks like a fast vectorized write, in practice it
       // unfortunately thrashes the cache since the writes to the column-major
-      // jacobian are strided (e.g. rows are non-contiguous).
+      // Jacobian are strided (e.g. rows are non-contiguous).
       jacobian_matrix.row(r) = jet_residuals_[r].v;
     }
     return true;
@@ -171,33 +172,31 @@ class TinySolverAutoDiffFunction {
   const CostFunctor& cost_functor_;
 
   // The number of residuals at runtime.
-  // This will be overriden if NUM_RESIDUALS == Eigen::Dynamic.
+  // This will be overridden if NUM_RESIDUALS == Eigen::Dynamic.
   int num_residuals_ = kNumResiduals;
 
-  // To evaluate the cost function with jets, temporary storage is needed. These
+  // To evaluate the cost function with Jets, temporary storage is needed. These
   // are the buffers that are used during evaluation; parameters for the input,
   // and jet_residuals_ are where the final cost and derivatives end up.
   //
   // Since this buffer is used for evaluation, the adapter is not thread safe.
+  static_assert(kNumParameters != Eigen::Dynamic);
   using JetType = Jet<T, kNumParameters>;
+  using JetResidualVector =
+      Eigen::Matrix<JetType, kNumResiduals, 1, 0, kMaxResiduals, 1>;
   mutable JetType jet_parameters_[kNumParameters];
+
   // Eigen::Matrix serves as static or dynamic container.
-  mutable Eigen::Matrix<JetType, kNumResiduals, 1> jet_residuals_;
+  mutable JetResidualVector jet_residuals_;
 
-  // The number of residuals is dynamically sized and the number of
-  // parameters is statically sized.
   template <int R>
-  typename std::enable_if<(R == Eigen::Dynamic), void>::type Initialize(
-      const CostFunctor& function) {
-    jet_residuals_.resize(function.NumResiduals());
-    num_residuals_ = function.NumResiduals();
-  }
-
-  // The number of parameters and residuals are statically sized.
-  template <int R>
-  typename std::enable_if<(R != Eigen::Dynamic), void>::type Initialize(
-      const CostFunctor& /* function */) {
-    num_residuals_ = kNumResiduals;
+  void Initialize(const CostFunctor& function) {
+    if constexpr (R == Eigen::Dynamic) {
+      jet_residuals_.resize(function.NumResiduals());
+      num_residuals_ = function.NumResiduals();
+    } else {
+      num_residuals_ = kNumResiduals;
+    }
   }
 };
 

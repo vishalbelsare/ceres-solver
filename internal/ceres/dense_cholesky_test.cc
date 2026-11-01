@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,28 +30,38 @@
 
 #include "ceres/dense_cholesky.h"
 
+#include <limits>
 #include <memory>
-#include <numeric>
+#include <sstream>
 #include <string>
-#include <vector>
+#include <tuple>
+#include <utility>
 
+#include "Eigen/Core"
 #include "Eigen/Dense"
+#include "ceres/context_impl.h"
+#include "ceres/eigen.h"
 #include "ceres/internal/config.h"
-#include "ceres/internal/eigen.h"
+#include "ceres/iterative_refiner.h"
 #include "ceres/linear_solver.h"
-#include "glog/logging.h"
+#include "ceres/types.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
-using Param = DenseLinearAlgebraLibraryType;
+using Param = std::tuple<DenseLinearAlgebraLibraryType, bool>;
+constexpr bool kMixedPrecision = true;
+constexpr bool kFullPrecision = false;
 
 namespace {
 
 std::string ParamInfoToString(testing::TestParamInfo<Param> info) {
-  return DenseLinearAlgebraLibraryTypeToString(info.param);
+  Param param = info.param;
+  std::stringstream ss;
+  ss << DenseLinearAlgebraLibraryTypeToString(std::get<0>(param)) << "_"
+     << (std::get<1>(param) ? "MixedPrecision" : "FullPrecision");
+  return ss.str();
 }
 }  // namespace
 
@@ -67,15 +77,22 @@ TEST_P(DenseCholeskyTest, FactorAndSolve) {
 
   LinearSolver::Options options;
   ContextImpl context;
+#ifndef CERES_NO_CUDA
   options.context = &context;
-  options.dense_linear_algebra_library_type = GetParam();
-  std::unique_ptr<DenseCholesky> dense_cholesky =
-      DenseCholesky::Create(options);
+  std::string error;
+  ASSERT_TRUE(context.InitCuda(&error)) << error;
+#endif  // CERES_NO_CUDA
+  options.dense_linear_algebra_library_type = std::get<0>(GetParam());
+  options.use_mixed_precision_solves = std::get<1>(GetParam());
+  const int kNumRefinementSteps = 4;
+  if (options.use_mixed_precision_solves) {
+    options.max_num_refinement_iterations = kNumRefinementSteps;
+  }
+  auto dense_cholesky = DenseCholesky::Create(options);
 
   const int kNumTrials = 10;
   const int kMinNumCols = 1;
   const int kMaxNumCols = 10;
-
   for (int num_cols = kMinNumCols; num_cols < kMaxNumCols; ++num_cols) {
     for (int trial = 0; trial < kNumTrials; ++trial) {
       const MatrixType a = MatrixType::Random(num_cols, num_cols);
@@ -83,12 +100,13 @@ TEST_P(DenseCholeskyTest, FactorAndSolve) {
       lhs += VectorType::Ones(num_cols).asDiagonal();
       Vector x = VectorType::Random(num_cols);
       Vector rhs = lhs * x;
+      lhs.triangularView<Eigen::StrictlyUpper>().setZero();
       Vector actual = Vector::Random(num_cols);
 
       LinearSolver::Summary summary;
       summary.termination_type = dense_cholesky->FactorAndSolve(
           num_cols, lhs.data(), rhs.data(), actual.data(), &summary.message);
-      EXPECT_EQ(summary.termination_type, LINEAR_SOLVER_SUCCESS);
+      EXPECT_EQ(summary.termination_type, LinearSolverTerminationType::SUCCESS);
       EXPECT_NEAR((x - actual).norm() / x.norm(),
                   0.0,
                   std::numeric_limits<double>::epsilon() * 10)
@@ -98,25 +116,107 @@ TEST_P(DenseCholeskyTest, FactorAndSolve) {
   }
 }
 
-namespace {
-
-// NOTE: preprocessor directives in a macro are not standard conforming
-decltype(auto) MakeValues() {
-  return ::testing::Values(EIGEN
+INSTANTIATE_TEST_SUITE_P(EigenCholesky,
+                         DenseCholeskyTest,
+                         ::testing::Combine(::testing::Values(EIGEN),
+                                            ::testing::Values(kMixedPrecision,
+                                                              kFullPrecision)),
+                         ParamInfoToString);
 #ifndef CERES_NO_LAPACK
-                           ,
-                           LAPACK
+INSTANTIATE_TEST_SUITE_P(LapackCholesky,
+                         DenseCholeskyTest,
+                         ::testing::Combine(::testing::Values(LAPACK),
+                                            ::testing::Values(kMixedPrecision,
+                                                              kFullPrecision)),
+                         ParamInfoToString);
 #endif
 #ifndef CERES_NO_CUDA
-                           ,
-                           CUDA
+INSTANTIATE_TEST_SUITE_P(CudaCholesky,
+                         DenseCholeskyTest,
+                         ::testing::Combine(::testing::Values(CUDA),
+                                            ::testing::Values(kMixedPrecision,
+                                                              kFullPrecision)),
+                         ParamInfoToString);
 #endif
-  );
+
+class MockDenseCholesky : public DenseCholesky {
+ public:
+  MOCK_METHOD(LinearSolverTerminationType,
+              Factorize,
+              (int num_cols, double* lhs, std::string* message),
+              (override));
+  MOCK_METHOD(LinearSolverTerminationType,
+              Solve,
+              (const double* rhs, double* solution, std::string* message),
+              (override));
+};
+
+class MockDenseIterativeRefiner : public DenseIterativeRefiner {
+ public:
+  MockDenseIterativeRefiner() : DenseIterativeRefiner(1) {}
+  MOCK_METHOD(void,
+              Refine,
+              (int num_cols,
+               const double* lhs,
+               const double* rhs,
+               DenseCholesky* dense_cholesky,
+               double* solution),
+              (override));
+};
+
+using testing::_;
+using testing::Return;
+
+TEST(RefinedDenseCholesky, Factorize) {
+  auto dense_cholesky = std::make_unique<MockDenseCholesky>();
+  auto iterative_refiner = std::make_unique<MockDenseIterativeRefiner>();
+  EXPECT_CALL(*dense_cholesky, Factorize(_, _, _))
+      .WillOnce(Return(LinearSolverTerminationType::SUCCESS));
+  EXPECT_CALL(*iterative_refiner, Refine(_, _, _, _, _)).Times(0);
+  RefinedDenseCholesky refined_dense_cholesky(std::move(dense_cholesky),
+                                              std::move(iterative_refiner));
+  double lhs;
+  std::string message;
+  EXPECT_EQ(refined_dense_cholesky.Factorize(1, &lhs, &message),
+            LinearSolverTerminationType::SUCCESS);
 }
 
-}  // namespace
+TEST(RefinedDenseCholesky, FactorAndSolveWithUnsuccessfulFactorization) {
+  auto dense_cholesky = std::make_unique<MockDenseCholesky>();
+  auto iterative_refiner = std::make_unique<MockDenseIterativeRefiner>();
+  EXPECT_CALL(*dense_cholesky, Factorize(_, _, _))
+      .WillOnce(Return(LinearSolverTerminationType::FAILURE));
+  EXPECT_CALL(*dense_cholesky, Solve(_, _, _)).Times(0);
+  EXPECT_CALL(*iterative_refiner, Refine(_, _, _, _, _)).Times(0);
+  RefinedDenseCholesky refined_dense_cholesky(std::move(dense_cholesky),
+                                              std::move(iterative_refiner));
+  double lhs;
+  std::string message;
+  double rhs;
+  double solution;
+  EXPECT_EQ(
+      refined_dense_cholesky.FactorAndSolve(1, &lhs, &rhs, &solution, &message),
+      LinearSolverTerminationType::FAILURE);
+}
 
-INSTANTIATE_TEST_SUITE_P(_, DenseCholeskyTest, MakeValues(), ParamInfoToString);
+TEST(RefinedDenseCholesky, FactorAndSolveWithSuccess) {
+  auto dense_cholesky = std::make_unique<MockDenseCholesky>();
+  auto iterative_refiner = std::make_unique<MockDenseIterativeRefiner>();
+  EXPECT_CALL(*dense_cholesky, Factorize(_, _, _))
+      .WillOnce(Return(LinearSolverTerminationType::SUCCESS));
+  EXPECT_CALL(*dense_cholesky, Solve(_, _, _))
+      .WillOnce(Return(LinearSolverTerminationType::SUCCESS));
+  EXPECT_CALL(*iterative_refiner, Refine(_, _, _, _, _)).Times(1);
 
-}  // namespace internal
-}  // namespace ceres
+  RefinedDenseCholesky refined_dense_cholesky(std::move(dense_cholesky),
+                                              std::move(iterative_refiner));
+  double lhs;
+  std::string message;
+  double rhs;
+  double solution;
+  EXPECT_EQ(
+      refined_dense_cholesky.FactorAndSolve(1, &lhs, &rhs, &solution, &message),
+      LinearSolverTerminationType::SUCCESS);
+}
+
+}  // namespace ceres::internal

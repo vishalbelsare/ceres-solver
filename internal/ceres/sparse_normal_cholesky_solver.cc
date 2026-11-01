@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,17 +36,16 @@
 #include <memory>
 
 #include "ceres/block_sparse_matrix.h"
+#include "ceres/eigen.h"
+#include "ceres/event_logger.h"
 #include "ceres/inner_product_computer.h"
-#include "ceres/internal/eigen.h"
 #include "ceres/iterative_refiner.h"
 #include "ceres/linear_solver.h"
 #include "ceres/sparse_cholesky.h"
 #include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
-#include "ceres/wall_time.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 SparseNormalCholeskySolver::SparseNormalCholeskySolver(
     const LinearSolver::Options& options)
@@ -64,7 +63,7 @@ LinearSolver::Summary SparseNormalCholeskySolver::SolveImpl(
   EventLogger event_logger("SparseNormalCholeskySolver::Solve");
   LinearSolver::Summary summary;
   summary.num_iterations = 1;
-  summary.termination_type = LINEAR_SOLVER_SUCCESS;
+  summary.termination_type = LinearSolverTerminationType::SUCCESS;
   summary.message = "Success.";
 
   const int num_cols = A->num_cols();
@@ -72,7 +71,7 @@ LinearSolver::Summary SparseNormalCholeskySolver::SolveImpl(
   xref.setZero();
   rhs_.resize(num_cols);
   rhs_.setZero();
-  A->LeftMultiply(b, rhs_.data());
+  A->LeftMultiplyAndAccumulate(b, rhs_.data());
   event_logger.AddEvent("Compute RHS");
 
   if (per_solve_options.D != nullptr) {
@@ -110,5 +109,4 @@ LinearSolver::Summary SparseNormalCholeskySolver::SolveImpl(
   return summary;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

@@ -3,26 +3,12 @@
 #include <algorithm>
 #include <cmath>
 
-#include "ceres/internal/eigen.h"
-#include "ceres/internal/fixed_array.h"
-#include "glog/logging.h"
+#include "absl/log/check.h"
+#include "ceres/eigen.h"
+#include "ceres/rotation.h"
 
 namespace ceres {
 namespace {
-
-struct CeresQuaternionOrder {
-  static constexpr int kW = 0;
-  static constexpr int kX = 1;
-  static constexpr int kY = 2;
-  static constexpr int kZ = 3;
-};
-
-struct EigenQuaternionOrder {
-  static constexpr int kW = 3;
-  static constexpr int kX = 0;
-  static constexpr int kY = 1;
-  static constexpr int kZ = 2;
-};
 
 template <typename Order>
 inline void QuaternionPlusImpl(const double* x,
@@ -30,35 +16,23 @@ inline void QuaternionPlusImpl(const double* x,
                                double* x_plus_delta) {
   // x_plus_delta = QuaternionProduct(q_delta, x), where q_delta is the
   // quaternion constructed from delta.
-  const double norm_delta = std::sqrt(
-      delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+  const double norm_delta = std::hypot(delta[0], delta[1], delta[2]);
 
-  if (norm_delta == 0.0) {
-    for (int i = 0; i < 4; ++i) {
-      x_plus_delta[i] = x[i];
-    }
+  if (std::fpclassify(norm_delta) == FP_ZERO) {
+    // No change in rotation: return the quaternion as is.
+    std::copy_n(x, 4, x_plus_delta);
     return;
   }
 
-  const double sin_delta_by_delta = (std::sin(norm_delta) / norm_delta);
+  const double sin_delta_by_delta = std::sin(norm_delta) / norm_delta;
+
   double q_delta[4];
   q_delta[Order::kW] = std::cos(norm_delta);
   q_delta[Order::kX] = sin_delta_by_delta * delta[0];
   q_delta[Order::kY] = sin_delta_by_delta * delta[1];
   q_delta[Order::kZ] = sin_delta_by_delta * delta[2];
 
-  x_plus_delta[Order::kW] =
-      q_delta[Order::kW] * x[Order::kW] - q_delta[Order::kX] * x[Order::kX] -
-      q_delta[Order::kY] * x[Order::kY] - q_delta[Order::kZ] * x[Order::kZ];
-  x_plus_delta[Order::kX] =
-      q_delta[Order::kW] * x[Order::kX] + q_delta[Order::kX] * x[Order::kW] +
-      q_delta[Order::kY] * x[Order::kZ] - q_delta[Order::kZ] * x[Order::kY];
-  x_plus_delta[Order::kY] =
-      q_delta[Order::kW] * x[Order::kY] - q_delta[Order::kX] * x[Order::kZ] +
-      q_delta[Order::kY] * x[Order::kW] + q_delta[Order::kZ] * x[Order::kX];
-  x_plus_delta[Order::kZ] =
-      q_delta[Order::kW] * x[Order::kZ] + q_delta[Order::kX] * x[Order::kY] -
-      q_delta[Order::kY] * x[Order::kX] + q_delta[Order::kZ] * x[Order::kW];
+  QuaternionProduct<Order>(q_delta, x, x_plus_delta);
 }
 
 template <typename Order>
@@ -86,33 +60,23 @@ inline void QuaternionMinusImpl(const double* y,
                                 double* y_minus_x) {
   // ambient_y_minus_x = QuaternionProduct(y, -x) where -x is the conjugate of
   // x.
-  double ambient_y_minus_x[4];
-  ambient_y_minus_x[Order::kW] =
-      y[Order::kW] * x[Order::kW] + y[Order::kX] * x[Order::kX] +
-      y[Order::kY] * x[Order::kY] + y[Order::kZ] * x[Order::kZ];
-  ambient_y_minus_x[Order::kX] =
-      -y[Order::kW] * x[Order::kX] + y[Order::kX] * x[Order::kW] -
-      y[Order::kY] * x[Order::kZ] + y[Order::kZ] * x[Order::kY];
-  ambient_y_minus_x[Order::kY] =
-      -y[Order::kW] * x[Order::kY] + y[Order::kX] * x[Order::kZ] +
-      y[Order::kY] * x[Order::kW] - y[Order::kZ] * x[Order::kX];
-  ambient_y_minus_x[Order::kZ] =
-      -y[Order::kW] * x[Order::kZ] - y[Order::kX] * x[Order::kY] +
-      y[Order::kY] * x[Order::kX] + y[Order::kZ] * x[Order::kW];
+  double x_conj[4];
+  QuaternionConjugate<Order>(x, x_conj);
 
-  const double u_norm =
-      std::sqrt(ambient_y_minus_x[Order::kX] * ambient_y_minus_x[Order::kX] +
-                ambient_y_minus_x[Order::kY] * ambient_y_minus_x[Order::kY] +
-                ambient_y_minus_x[Order::kZ] * ambient_y_minus_x[Order::kZ]);
-  if (u_norm > 0.0) {
+  double ambient_y_minus_x[4];
+  QuaternionProduct<Order>(y, x_conj, ambient_y_minus_x);
+
+  const double u_norm = std::hypot(ambient_y_minus_x[Order::kX],
+                                   ambient_y_minus_x[Order::kY],
+                                   ambient_y_minus_x[Order::kZ]);
+
+  if (std::fpclassify(u_norm) != FP_ZERO) {
     const double theta = std::atan2(u_norm, ambient_y_minus_x[Order::kW]);
     y_minus_x[0] = theta * ambient_y_minus_x[Order::kX] / u_norm;
     y_minus_x[1] = theta * ambient_y_minus_x[Order::kY] / u_norm;
     y_minus_x[2] = theta * ambient_y_minus_x[Order::kZ] / u_norm;
   } else {
-    y_minus_x[0] = 0.0;
-    y_minus_x[1] = 0.0;
-    y_minus_x[2] = 0.0;
+    std::fill_n(y_minus_x, 3, 0.0);
   }
 }
 
@@ -201,7 +165,7 @@ bool SubsetManifold::Plus(const double* x,
   return true;
 }
 
-bool SubsetManifold::PlusJacobian(const double* x,
+bool SubsetManifold::PlusJacobian(const double* /*x*/,
                                   double* plus_jacobian) const {
   if (tangent_size_ == 0) {
     return true;
@@ -218,7 +182,7 @@ bool SubsetManifold::PlusJacobian(const double* x,
   return true;
 }
 
-bool SubsetManifold::RightMultiplyByPlusJacobian(const double* x,
+bool SubsetManifold::RightMultiplyByPlusJacobian(const double* /*x*/,
                                                  const int num_rows,
                                                  const double* ambient_matrix,
                                                  double* tangent_matrix) const {
@@ -254,7 +218,7 @@ bool SubsetManifold::Minus(const double* y,
   return true;
 }
 
-bool SubsetManifold::MinusJacobian(const double* x,
+bool SubsetManifold::MinusJacobian(const double* /*x*/,
                                    double* minus_jacobian) const {
   const int ambient_size = AmbientSize();
   MatrixRef m(minus_jacobian, tangent_size_, ambient_size);

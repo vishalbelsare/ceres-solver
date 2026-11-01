@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,47 +31,28 @@
 #include "ceres/gradient_problem.h"
 
 #include <memory>
+#include <utility>
 
-#include "ceres/local_parameterization.h"
-#include "ceres/manifold_adapter.h"
-#include "glog/logging.h"
+#include "absl/log/check.h"
+#include "ceres/manifold.h"
 
 namespace ceres {
 
-GradientProblem::GradientProblem(FirstOrderFunction* function)
-    : function_(function),
+GradientProblem::GradientProblem(std::unique_ptr<FirstOrderFunction> function)
+    : function_(std::move(function)),
       manifold_(std::make_unique<EuclideanManifold<DYNAMIC>>(
           function_->NumParameters())),
       scratch_(new double[function_->NumParameters()]) {
-  CHECK(function != nullptr);
+  CHECK(function_ != nullptr);
 }
 
-GradientProblem::GradientProblem(FirstOrderFunction* function,
-                                 LocalParameterization* parameterization)
-    : function_(function),
-      parameterization_(parameterization),
+GradientProblem::GradientProblem(std::unique_ptr<FirstOrderFunction> function,
+                                 std::unique_ptr<Manifold> manifold)
+    : function_(std::move(function)),
+      manifold_(std::move(manifold)),
       scratch_(new double[function_->NumParameters()]) {
-  CHECK(function != nullptr);
-  if (parameterization != nullptr) {
-    manifold_ =
-        std::make_unique<internal::ManifoldAdapter>(parameterization_.get());
-  } else {
-    manifold_ = std::make_unique<EuclideanManifold<DYNAMIC>>(
-        function_->NumParameters());
-  }
-  CHECK_EQ(function_->NumParameters(), manifold_->AmbientSize());
-}
-
-GradientProblem::GradientProblem(FirstOrderFunction* function,
-                                 Manifold* manifold)
-    : function_(function), scratch_(new double[function_->NumParameters()]) {
-  CHECK(function != nullptr);
-  if (manifold != nullptr) {
-    manifold_.reset(manifold);
-  } else {
-    manifold_ = std::make_unique<EuclideanManifold<DYNAMIC>>(
-        function_->NumParameters());
-  }
+  CHECK(function_ != nullptr);
+  CHECK(manifold_ != nullptr);
   CHECK_EQ(function_->NumParameters(), manifold_->AmbientSize());
 }
 

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,7 @@
 #include <memory>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "ceres/block_evaluate_preparer.h"
 #include "ceres/block_jacobian_writer.h"
 #include "ceres/compressed_row_jacobian_writer.h"
@@ -44,10 +45,8 @@
 #include "ceres/internal/export.h"
 #include "ceres/program_evaluator.h"
 #include "ceres/scratch_evaluate_preparer.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 Evaluator::~Evaluator() = default;
 
@@ -64,11 +63,22 @@ std::unique_ptr<Evaluator> Evaluator::Create(const Evaluator::Options& options,
           options, program);
     case DENSE_SCHUR:
     case SPARSE_SCHUR:
-    case ITERATIVE_SCHUR:
-    case CGNR:
+    case ITERATIVE_SCHUR: {
       return std::make_unique<
           ProgramEvaluator<BlockEvaluatePreparer, BlockJacobianWriter>>(
           options, program);
+    }
+    case CGNR: {
+      if (options.sparse_linear_algebra_library_type == CUDA_SPARSE) {
+        return std::make_unique<ProgramEvaluator<ScratchEvaluatePreparer,
+                                                 CompressedRowJacobianWriter>>(
+            options, program);
+      } else {
+        return std::make_unique<
+            ProgramEvaluator<BlockEvaluatePreparer, BlockJacobianWriter>>(
+            options, program);
+      }
+    }
     case SPARSE_NORMAL_CHOLESKY:
       if (options.dynamic_sparsity) {
         return std::make_unique<
@@ -88,5 +98,4 @@ std::unique_ptr<Evaluator> Evaluator::Create(const Evaluator::Options& options,
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

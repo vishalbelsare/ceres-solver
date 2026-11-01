@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2018 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,29 +32,21 @@
 // the generated bundle adjustment test binaries. The reason to split the
 // bundle tests into separate binaries is so the tests can get parallelized.
 
-#include <cmath>
 #include <cstdio>
-#include <cstdlib>
+#include <memory>
 #include <string>
 
+#include "absl/log/log.h"
 #include "ceres/autodiff_cost_function.h"
 #include "ceres/internal/export.h"
 #include "ceres/ordered_groups.h"
 #include "ceres/problem.h"
 #include "ceres/rotation.h"
 #include "ceres/solver.h"
-#include "ceres/stringprintf.h"
 #include "ceres/test_util.h"
 #include "ceres/types.h"
-#include "gflags/gflags.h"
-#include "glog/logging.h"
-#include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
-
-using std::string;
-using std::vector;
+namespace ceres::internal {
 
 const bool kAutomaticOrdering = true;
 const bool kUserOrdering = false;
@@ -65,11 +57,19 @@ const bool kUserOrdering = false;
 // problem is hard coded in the constructor.
 class BundleAdjustmentProblem {
  public:
-  BundleAdjustmentProblem() {
-    const string input_file = TestFileAbsolutePath("problem-16-22106-pre.txt");
+  explicit BundleAdjustmentProblem(const std::string input_file) {
     ReadData(input_file);
     BuildProblem();
   }
+
+#ifdef CERES_HAS_GTEST
+  BundleAdjustmentProblem() {
+    const std::string input_file =
+        TestFileAbsolutePath("problem-16-22106-pre.txt");
+    ReadData(input_file);
+    BuildProblem();
+  }
+#endif
 
   ~BundleAdjustmentProblem() {
     delete[] point_index_;
@@ -82,20 +82,21 @@ class BundleAdjustmentProblem {
   Solver::Options* mutable_solver_options() { return &options_; }
 
   // clang-format off
-  int num_cameras()            const { return num_cameras_; }
-  int num_points()             const { return num_points_; }
-  int num_observations()       const { return num_observations_; }
-  const int* point_index()     const { return point_index_; }
-  const int* camera_index()    const { return camera_index_; }
-  const double* observations() const { return observations_; }
-  double* mutable_cameras()          { return parameters_; }
-  double* mutable_points()           { return parameters_ + 9 * num_cameras_; }
+  int num_cameras()                const { return num_cameras_; }
+  int num_points()                 const { return num_points_; }
+  int num_observations()           const { return num_observations_; }
+  const int* point_index()         const { return point_index_; }
+  const int* camera_index()        const { return camera_index_; }
+  const double* observations()     const { return observations_; }
+  double* mutable_cameras()              { return parameters_; }
+  double* mutable_points()               { return parameters_ + 9 * num_cameras_; }
+  const Solver::Options& options() const { return options_; }
   // clang-format on
 
-  static double kResidualTolerance;
+  static constexpr double kResidualTolerance = 1e-4;
 
  private:
-  void ReadData(const string& filename) {
+  void ReadData(const std::string& filename) {
     FILE* fptr = fopen(filename.c_str(), "r");
 
     if (!fptr) {
@@ -241,8 +242,8 @@ class BundleAdjustmentProblem {
   double* parameters_;
 };
 
-double BundleAdjustmentProblem::kResidualTolerance = 1e-4;
+#ifdef CERES_HAS_GTEST
 using BundleAdjustmentTest = SystemTest<BundleAdjustmentProblem>;
+#endif
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

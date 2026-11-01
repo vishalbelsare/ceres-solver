@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,26 +32,25 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
+#include <random>
 
-#include "ceres/internal/eigen.h"
-#include "ceres/random.h"
+#include "ceres/eigen.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
 
 // If rho[1] is zero, the Corrector constructor should crash.
-TEST(Corrector, ZeroGradientDeathTest) {
+TEST(CorrectorDeathTest, ZeroGradient) {
   const double kRho[] = {0.0, 0.0, 1.0};
-  EXPECT_DEATH_IF_SUPPORTED({ Corrector c(1.0, kRho); }, ".*");
+  EXPECT_DEATH_IF_SUPPORTED({ Corrector c(1.0, kRho); }, "rho\\[1\\] > 0");
 }
 
 // If rho[1] is negative, the Corrector constructor should crash.
-TEST(Corrector, NegativeGradientDeathTest) {
+TEST(CorrectorDeathTest, NegativeGradient) {
   const double kRho[] = {0.0, -0.1, 1.0};
-  EXPECT_DEATH_IF_SUPPORTED({ Corrector c(1.0, kRho); }, ".*");
+  EXPECT_DEATH_IF_SUPPORTED({ Corrector c(1.0, kRho); }, "rho\\[1\\] > 0");
 }
 
 TEST(Corrector, ScalarCorrection) {
@@ -160,18 +159,19 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximation) {
   // and hessians.
   Matrix c_hess(2, 2);
   Vector c_grad(2);
-
-  srand(5);
+  std::mt19937 prng;
+  std::uniform_real_distribution<double> uniform01(0.0, 1.0);
   for (int iter = 0; iter < 10000; ++iter) {
     // Initialize the jacobian and residual.
-    for (double& jacobian_entry : jacobian) jacobian_entry = RandDouble();
-    for (double& residual : residuals) residual = RandDouble();
+    for (double& jacobian_entry : jacobian) jacobian_entry = uniform01(prng);
+    for (double& residual : residuals) residual = uniform01(prng);
 
     const double sq_norm = res.dot(res);
 
     rho[0] = sq_norm;
-    rho[1] = RandDouble();
-    rho[2] = 2.0 * RandDouble() - 1.0;
+    rho[1] = uniform01(prng);
+    rho[2] = uniform01(
+        prng, std::uniform_real_distribution<double>::param_type(-1, 1));
 
     // If rho[2] > 0, then the curvature correction to the correction
     // and the gauss newton approximation will match. Otherwise, we
@@ -186,8 +186,12 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximation) {
         sqrt(rho[1]) * (jac - kAlpha / sq_norm * res * res.transpose() * jac);
 
     g_grad = rho[1] * jac.transpose() * res;
-    g_hess = rho[1] * jac.transpose() * jac +
-             2.0 * rho[2] * jac.transpose() * res * res.transpose() * jac;
+    if (rho[2] > 0.0) {
+      g_hess = rho[1] * jac.transpose() * jac +
+               2.0 * rho[2] * jac.transpose() * res * res.transpose() * jac;
+    } else {
+      g_hess = rho[1] * jac.transpose() * jac;
+    }
 
     Corrector c(sq_norm, rho);
     c.CorrectJacobian(3, 2, residuals, jacobian);
@@ -201,6 +205,7 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximation) {
     ASSERT_NEAR((g_jac - jac).norm(), 0.0, 1e-10);
 
     ASSERT_NEAR((g_grad - c_grad).norm(), 0.0, 1e-10);
+    ASSERT_NEAR((g_hess - c_hess).norm(), 0.0, 1e-10);
   }
 }
 
@@ -227,10 +232,11 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximationZeroResidual) {
   Matrix c_hess(2, 2);
   Vector c_grad(2);
 
-  srand(5);
+  std::mt19937 prng;
+  std::uniform_real_distribution<double> uniform01(0.0, 1.0);
   for (int iter = 0; iter < 10000; ++iter) {
     // Initialize the jacobian.
-    for (double& jacobian_entry : jacobian) jacobian_entry = RandDouble();
+    for (double& jacobian_entry : jacobian) jacobian_entry = uniform01(prng);
 
     // Zero residuals
     res.setZero();
@@ -238,8 +244,9 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximationZeroResidual) {
     const double sq_norm = res.dot(res);
 
     rho[0] = sq_norm;
-    rho[1] = RandDouble();
-    rho[2] = 2 * RandDouble() - 1.0;
+    rho[1] = uniform01(prng);
+    rho[2] = uniform01(
+        prng, std::uniform_real_distribution<double>::param_type(-1, 1));
 
     // Ground truth values.
     g_res = sqrt(rho[1]) * res;

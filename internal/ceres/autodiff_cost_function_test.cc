@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,8 +36,7 @@
 #include "ceres/cost_function.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 class BinaryScalarCost {
  public:
@@ -91,6 +90,30 @@ TEST(AutodiffCostFunction, BilinearDifferentiationTest) {
   delete[] jacobians;
   delete[] parameters;
   delete cost_function;
+}
+
+TEST(AutodiffCostFunction, OwnershipTest) {
+  BinaryScalarCost functor(1.0);
+  {
+    AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2> cost_function(
+        &functor, DO_NOT_TAKE_OWNERSHIP);
+    double parameters_data[4] = {1.0, 2.0, 3.0, 4.0};
+    double* parameters[2] = {parameters_data, parameters_data + 2};
+    double residuals;
+    cost_function.Evaluate(parameters, &residuals, nullptr);
+    EXPECT_EQ(residuals, 10.0);
+  }
+}
+
+TEST(AutodiffCostFunction, UniquePtrTest) {
+  auto cost_function =
+      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(
+          std::make_unique<BinaryScalarCost>(1.0));
+  double parameters_data[4] = {1.0, 2.0, 3.0, 4.0};
+  double* parameters[2] = {parameters_data, parameters_data + 2};
+  double residuals;
+  cost_function->Evaluate(parameters, &residuals, nullptr);
+  EXPECT_EQ(residuals, 10.0);
 }
 
 struct TenParameterCost {
@@ -179,5 +202,24 @@ TEST(AutoDiffCostFunction, PartiallyFilledResidualShouldFailEvaluation) {
   EXPECT_FALSE(IsArrayValid(2, residuals));
 }
 
-}  // namespace internal
-}  // namespace ceres
+TEST(AutodiffCostFunction, ArgumentForwarding) {
+  // No narrowing conversion warning should be emitted
+  auto cost_function1 =
+      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(1);
+  auto cost_function2 =
+      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(2.0);
+  // Default constructible functor
+  auto cost_function3 =
+      std::make_unique<AutoDiffCostFunction<OnlyFillsOneOutputFunctor, 1, 1>>();
+}
+
+TEST(AutodiffCostFunction, UniquePtrCtor) {
+  auto cost_function1 =
+      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(
+          std::make_unique<BinaryScalarCost>(1));
+  auto cost_function2 =
+      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(
+          std::make_unique<BinaryScalarCost>(2.0));
+}
+
+}  // namespace ceres::internal

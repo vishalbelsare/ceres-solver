@@ -4,74 +4,47 @@
 Installation
 ============
 
-Getting the source code
-=======================
-.. _section-source:
-
-You can start with the `latest stable release
-<http://ceres-solver.org/ceres-solver-2.1.0.tar.gz>`_ . Or if you want
-the latest version, you can clone the git repository
-
-.. code-block:: bash
-
-       git clone https://ceres-solver.googlesource.com/ceres-solver
-
 .. _section-dependencies:
 
 Dependencies
 ============
 
- .. NOTE ::
+ .. note ::
 
-    Starting with v2.0 Ceres requires a **fully C++14-compliant**
-    compiler.  In versions <= 1.14, C++11 was an optional requirement.
+    Starting with version 2.2, Ceres Solver requires a **fully
+    C++17-compliant** compiler.
 
 Ceres relies on a number of open source libraries, some of which are
 optional. For details on customizing the build process, see
 :ref:`section-customizing` .
 
-- `CMake <http://www.cmake.org>`_ 3.10 or later **required**.
+- `CMake <https://cmake.org>`_ (**Required**) 3.22 or later.
 
-- `Eigen <http://eigen.tuxfamily.org/index.php?title=Main_Page>`_
-  3.3 or later **required**.
+- `Eigen <https://libeigen.gitlab.io/>`_
+  (**Required**) 3.3.4 or later.
 
   .. NOTE ::
 
     Ceres can also use Eigen as a sparse linear algebra
-    library. Please see the documentation for ``EIGENSPARSE`` for
+    library. Please see the documentation for ``WITH_EIGENSPARSE`` for
     more details.
 
-- `glog <https://github.com/google/glog>`_ 0.3.5 or
-  later. **Recommended**
+- `Abseil <https://abseil.io/>`_ (**Required**) 20240116 or later.
 
-  ``glog`` is used extensively throughout Ceres for logging detailed
-  information about memory allocations and time consumed in various
-  parts of the solve, internal error conditions etc. The Ceres
-  developers use it extensively to observe and analyze Ceres's
-  performance. `glog <https://github.com/google/glog>`_ allows you to
-  control its behaviour from the command line. Starting with
-  ``-logtostderr`` you can add ``-v=N`` for increasing values of ``N``
-  to get more and more verbose and detailed information about Ceres
-  internals.
+- `GoogleTest <https://github.com/google/googletest>`_ (**Optional**;
+  Required if you wish to build and run tests) 1.14.0 or later.
 
-  Ceres also ships with a minimal replacement of ``glog`` called
-  ``miniglog`` that can be enabled with the ``MINIGLOG`` build option.
-  ``miniglog`` is supplied for platforms which do not support the full
-  version of ``glog``.
+- `Google Benchmark <https://github.com/google/benchmark>`_ (**Optional**;
+  used if ``BUILD_BENCHMARKS`` is ``ON``).
 
-  In an attempt to reduce dependencies, it may be tempting to use
-  ``miniglog`` on platforms which already support ``glog``. While
-  there is nothing preventing the user from doing so, we strongly
-  recommend against it. ``miniglog`` has worse performance than
-  ``glog`` and is much harder to control and use.
-
-- `gflags <https://github.com/gflags/gflags>`_. Needed to build
-  examples and tests and usually a dependency for glog.
-
-- `SuiteSparse <http://faculty.cse.tamu.edu/davis/suitesparse.html>`_
-  5.0 or later. Needed for solving large sparse linear
-  systems. **Optional; strongly recomended for large scale bundle
-  adjustment**
+- `SuiteSparse <https://people.engr.tamu.edu/davis/suitesparse.html>`_
+  (**Optional; strongly recommended for large problems**) 4.5.6 or
+  later (7.4.0 or later for single-precision ``CHOLMOD`` support). Needed
+  for solving large sparse linear systems. Because ``SuiteSparse``'s
+  supernodal ``CHOLMOD`` and ``SPQR`` components are licensed under the
+  GPL, ``WITH_SUITESPARSE`` defaults to ``OFF``; pass
+  ``-DWITH_SUITESPARSE=ON`` to ``CMake`` to enable it (see
+  ``WITH_SUITESPARSE`` in :ref:`options-controlling-ceres-configuration`).
 
   .. NOTE ::
 
@@ -81,105 +54,141 @@ optional. For details on customizing the build process, see
      found TBB version. You can customize the searched TBB location
      with the ``TBB_ROOT`` variable.
 
-  A CMake native version of SuiteSparse that can be compiled on a variety of
-  platforms (e.g., using Visual Studio, Xcode, MinGW, etc.) is maintained by the
-  `CMake support for SuiteSparse <https://github.com/sergiud/SuiteSparse>`_
-  project.
+- `METIS <https://github.com/KarypisLab/METIS>`_ (**Optional**) Used by
+  ``SuiteSparse``, optionally by ``Eigen``'s sparse solvers (when
+  ``WITH_EIGENMETIS=ON``), and directly by Ceres for graph partitioning.
 
-- `CXSparse <http://faculty.cse.tamu.edu/davis/suitesparse.html>`_.
-  Similar to ``SuiteSparse`` but simpler and slower. CXSparse has
-  no dependencies on ``LAPACK`` and ``BLAS``. This makes for a simpler
-  build process and a smaller binary. **Optional**
+- `Apple's Accelerate sparse solvers
+  <https://developer.apple.com/documentation/accelerate/sparse-solvers-library>`_. (**Optional**)
 
-  A CMake native version of CXSparse that can be compiled on a variety of
-  platforms (e.g., using Visual Studio, Xcode, MinGW, etc.) is also maintained
-  by the `CMake support for SuiteSparse
-  <https://github.com/sergiud/SuiteSparse>`_ project and is part of the
-  SuiteSparse package.
-
-- `Apple's Accelerate sparse solvers <https://developer.apple.com/documentation/accelerate/sparse_solvers>`_.
   As of Xcode 9.0, Apple's Accelerate framework includes support for
-  solving sparse linear systems across macOS, iOS et al. **Optional**
+  solving sparse linear systems across macOS, iOS et al.
 
-- `BLAS <http://www.netlib.org/blas/>`_ and `LAPACK
-  <http://www.netlib.org/lapack/>`_ routines are needed by
-  ``SuiteSparse``, and optionally used by Ceres directly for some
-  operations.
+- `BLAS <https://www.netlib.org/blas/>`_ and `LAPACK
+  <https://www.netlib.org/lapack/>`_ (**Optional**) ``LAPACK`` and
+  ``BLAS`` routines are used by ``SuiteSparse``, and optionally used by
+  Ceres directly for some operations (controlled by ``WITH_LAPACK``).
 
   For best performance on ``x86`` based Linux systems we recommend
-  using `Intel MKL
-  <https://www.intel.com/content/www/us/en/develop/documentation/get-started-with-mkl-for-dpcpp/top.html>`_.
+  using `Intel oneAPI MKL
+  <https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl.html>`_.
 
-  Two other good options are `ATLAS
-  <http://math-atlas.sourceforge.net/>`_, which includes ``BLAS`` and
-  ``LAPACK`` routines and `OpenBLAS
-  <https://github.com/xianyi/OpenBLAS>`_ . However, one needs to be
+  Another good option is `OpenBLAS
+  <https://github.com/OpenMathLib/OpenBLAS>`_. However, one needs to be
   careful to `turn off the threading
-  <https://github.com/xianyi/OpenBLAS/wiki/faq#wiki-multi-threaded>`_
+  <https://www.openmathlib.org/OpenBLAS/docs/faq/#how-can-i-use-openblas-in-multi-threaded-applications>`_
   inside ``OpenBLAS`` as it conflicts with use of threads in Ceres.
 
-  MacOS ships with an optimized ``LAPACK`` and ``BLAS``
+  macOS ships with an optimized ``LAPACK`` and ``BLAS``
   implementation as part of the ``Accelerate`` framework. The Ceres
   build system will automatically detect and use it.
 
-  For Windows things are much more complicated. `LAPACK For
-  Windows <http://icl.cs.utk.edu/lapack-for-windows/lapack/>`_
-  has detailed instructions..
+  On Windows, ``BLAS`` and ``LAPACK`` (such as ``OpenBLAS`` or ``Intel MKL``)
+  can be installed via `vcpkg <https://github.com/microsoft/vcpkg>`_ or
+  `MSYS2 <https://www.msys2.org/>`_, or obtained as part of the prebuilt
+  ``SuiteSparse`` binary packages (see :ref:`section-windows`).
 
-  **Optional but required for** ``SuiteSparse``.
 
-- `CUDA <https://developer.nvidia.com/cuda-toolkit>`_ If you have an
-  NVIDIA GPU then Ceres Solver can use it accelerate the solution of
-  the Gauss-Newton linear systems using ``CUDA``. Currently this
-  support is limited to using the dense linear solvers that ship with
-  ``CUDA``. As a result GPU acceleration can be used to speed up
-  ``DENSE_QR``, ``DENSE_NORMAL_CHOLESKY`` and
-  ``DENSE_SCHUR``. **Optional**.
+- `CUDA <https://developer.nvidia.com/cuda/toolkit>`_ and `cuDSS
+  <https://developer.nvidia.com/cudss>`_ (**Optional**)
+
+  If you have an NVIDIA GPU then Ceres Solver can use it to accelerate
+  the solution of the Gauss-Newton linear systems using the CMake flag
+  ``WITH_CUDA``.
+
+  This support depends on two libraries from NVIDIA: ``CUDA`` and ``cuDSS``.
+
+  If ``CUDA`` is available, Ceres Solver is able to use
+  GPU acceleration to speed up ``DENSE_QR``, ``DENSE_NORMAL_CHOLESKY``,
+  ``DENSE_SCHUR``, and ``CGNR``.  This also enables ``CUDA`` based
+  mixed precision solves for ``DENSE_NORMAL_CHOLESKY`` and
+  ``DENSE_SCHUR``.
+
+  Additionally, if ``cuDSS`` is also available (controlled by
+  ``WITH_CUDSS``), then GPU acceleration can be used for
+  ``SPARSE_NORMAL_CHOLESKY`` and ``SPARSE_SCHUR`` via the
+  ``CUDA_SPARSE`` sparse linear algebra library.
+
+.. _section-source:
+
+Getting the source code
+=======================
+
+
+You can start with the `latest stable release
+<http://ceres-solver.org/ceres-solver-2.3.0.tar.gz>`_ . Or if you want
+the latest version, you can clone the git repository
+
+.. code-block:: bash
+
+   git clone https://github.com/ceres-solver/ceres-solver
+
+If your system does not have recent enough versions of `Abseil
+<https://abseil.io/>`_ (>= 20240116) and/or `GoogleTest
+<https://github.com/google/googletest>`_ (>= 1.14.0), then you can use
+the versions included with Ceres Solver as git submodules by using the
+command
+
+.. code-block:: bash
+
+   git clone --recurse-submodules https://github.com/ceres-solver/ceres-solver
+
+The build instructions below use ``ceres-solver-2.3.0`` as the source
+directory because they assume a release archive. If you build from a Git
+checkout, replace it with the name of your checkout, usually ``ceres-solver``.
+
 
 .. _section-linux:
 
 Linux
 =====
 
-We will use `Ubuntu <http://www.ubuntu.com>`_ as our example linux
+We will use `Ubuntu <https://ubuntu.com/>`_ as our example Linux
 distribution.
 
 .. NOTE::
 
    Ceres Solver always supports the previous and current Ubuntu LTS
-   releases, currently 18.04 and 20.04, using the default Ubuntu
+   releases, currently 22.04 and 24.04 using the default Ubuntu
    repositories and compiler toolchain. Support for earlier versions
    is not guaranteed or maintained.
 
-Start by installing all the dependencies.
+   Because the default ``apt`` repositories on Ubuntu 22.04 and 24.04
+   ship versions of ``libabsl-dev`` older than ``20240116``, we
+   recommend cloning Ceres with ``--recurse-submodules`` on those
+   distributions so that CMake automatically builds the bundled
+   ``Abseil`` and ``GoogleTest`` submodules in ``third_party/``. On
+   newer distributions that ship ``Abseil >= 20240116`` and
+   ``GoogleTest >= 1.14.0``, you can install ``libabsl-dev`` and
+   ``libgtest-dev`` directly via ``apt``.
+
+Start by installing the dependencies:
 
 .. code-block:: bash
 
      # CMake
      sudo apt-get install cmake
-     # google-glog + gflags
-     sudo apt-get install libgoogle-glog-dev libgflags-dev
-     # Use ATLAS for BLAS & LAPACK
-     sudo apt-get install libatlas-base-dev
+     # BLAS & LAPACK
+     sudo apt-get install libblas-dev liblapack-dev
      # Eigen3
      sudo apt-get install libeigen3-dev
-     # SuiteSparse and CXSparse (optional)
-     sudo apt-get install libsuitesparse-dev
+     # SuiteSparse and METIS (optional)
+     sudo apt-get install libsuitesparse-dev libmetis-dev
+     # Abseil and GoogleTest (if your distribution ships >= 20240116 and >= 1.14.0;
+     # otherwise clone Ceres with --recurse-submodules)
+     sudo apt-get install libabsl-dev libgtest-dev
 
 We are now ready to build, test, and install Ceres.
 
 .. code-block:: bash
 
- tar zxf ceres-solver-2.1.0.tar.gz
- mkdir ceres-bin
- cd ceres-bin
- cmake ../ceres-solver-2.1.0
- make -j3
- make test
- # Optionally install Ceres, it can also be exported using CMake which
- # allows Ceres to be used without requiring installation, see the documentation
- # for the EXPORT_BUILD_DIR option for more information.
- make install
+ tar zxf ceres-solver-2.3.0.tar.gz
+ cmake -S ceres-solver-2.3.0 -B ceres-bin -DWITH_SUITESPARSE=ON
+ cmake --build ceres-bin -j
+ ctest --test-dir ceres-bin --output-on-failure
+ # Optionally install Ceres system-wide (or use ceres-bin directly via Ceres_DIR;
+ # see "Using Ceres with CMake" below).
+ sudo cmake --install ceres-bin
 
 You can also try running the command line bundling application with one of the
 included problems, which comes from the University of Washington's BAL
@@ -187,7 +196,7 @@ dataset [Agarwal]_.
 
 .. code-block:: bash
 
- bin/simple_bundle_adjuster ../ceres-solver-2.1.0/data/problem-16-22106-pre.txt
+ ceres-bin/bin/simple_bundle_adjuster ceres-solver-2.3.0/data/problem-16-22106-pre.txt
 
 This runs Ceres for a maximum of 10 iterations using the
 ``DENSE_SCHUR`` linear solver. The output should look something like
@@ -196,56 +205,56 @@ this.
 .. code-block:: bash
 
     iter      cost      cost_change  |gradient|   |step|    tr_ratio  tr_radius  ls_iter  iter_time  total_time
-       0  4.185660e+06    0.00e+00    1.09e+08   0.00e+00   0.00e+00  1.00e+04       0    7.59e-02    3.37e-01
-       1  1.062590e+05    4.08e+06    8.99e+06   5.36e+02   9.82e-01  3.00e+04       1    1.65e-01    5.03e-01
-       2  4.992817e+04    5.63e+04    8.32e+06   3.19e+02   6.52e-01  3.09e+04       1    1.45e-01    6.48e-01
-       3  1.899774e+04    3.09e+04    1.60e+06   1.24e+02   9.77e-01  9.26e+04       1    1.43e-01    7.92e-01
-       4  1.808729e+04    9.10e+02    3.97e+05   6.39e+01   9.51e-01  2.78e+05       1    1.45e-01    9.36e-01
-       5  1.803399e+04    5.33e+01    1.48e+04   1.23e+01   9.99e-01  8.33e+05       1    1.45e-01    1.08e+00
-       6  1.803390e+04    9.02e-02    6.35e+01   8.00e-01   1.00e+00  2.50e+06       1    1.50e-01    1.23e+00
+       0  4.185660e+06    0.00e+00    1.09e+08   0.00e+00   0.00e+00  1.00e+04        0    2.18e-02    6.57e-02
+       1  1.062590e+05    4.08e+06    8.99e+06   0.00e+00   9.82e-01  3.00e+04        1    5.07e-02    1.16e-01
+       2  4.992817e+04    5.63e+04    8.32e+06   3.19e+02   6.52e-01  3.09e+04        1    4.75e-02    1.64e-01
+       3  1.899774e+04    3.09e+04    1.60e+06   1.24e+02   9.77e-01  9.26e+04        1    4.74e-02    2.11e-01
+       4  1.808729e+04    9.10e+02    3.97e+05   6.39e+01   9.51e-01  2.78e+05        1    4.75e-02    2.59e-01
+       5  1.803399e+04    5.33e+01    1.48e+04   1.23e+01   9.99e-01  8.33e+05        1    4.74e-02    3.06e-01
+       6  1.803390e+04    9.02e-02    6.35e+01   8.00e+01   1.00e+00  2.50e+06        1    4.76e-02    3.54e-01
 
-  Solver Summary (v 2.1.0-eigen-(3.4.0)-lapack-suitesparse-(5.10.1)-cxsparse-(3.2.0)-acceleratesparse-eigensparse-no_openmp)
+    Solver Summary (v 2.3.0-eigen-(3.4.0)-lapack-suitesparse-(7.1.0)-metis-(5.1.0)-acceleratesparse-eigensparse)
 
-				       Original                  Reduced
-  Parameter blocks                        22122                    22122
-  Parameters                              66462                    66462
-  Residual blocks                         83718                    83718
-  Residuals                              167436                   167436
+                                         Original                  Reduced
+    Parameter blocks                        22122                    22122
+    Parameters                              66462                    66462
+    Residual blocks                         83718                    83718
+    Residuals                              167436                   167436
 
-  Minimizer                        TRUST_REGION
+    Minimizer                        TRUST_REGION
 
-  Dense linear algebra library            EIGEN
-  Trust region strategy     LEVENBERG_MARQUARDT
+    Dense linear algebra library            EIGEN
+    Trust region strategy     LEVENBERG_MARQUARDT
+                                            Given                     Used
+    Linear solver                     DENSE_SCHUR              DENSE_SCHUR
+    Threads                                     1                        1
+    Linear solver ordering              AUTOMATIC                 22106,16
+    Schur structure                         2,3,9                    2,3,9
 
-					  Given                     Used
-  Linear solver                     DENSE_SCHUR              DENSE_SCHUR
-  Threads                                     1                        1
-  Linear solver ordering              AUTOMATIC                 22106,16
-  Schur structure                         2,3,9                    2,3,9
+    Cost:
+    Initial                          4.185660e+06
+    Final                            1.803390e+04
+    Change                           4.167626e+06
 
-  Cost:
-  Initial                          4.185660e+06
-  Final                            1.803390e+04
-  Change                           4.167626e+06
+    Minimizer iterations                        7
+    Successful steps                            7
+    Unsuccessful steps                          0
 
-  Minimizer iterations                        7
-  Successful steps                            7
-  Unsuccessful steps                          0
+    Time (in seconds):
+    Preprocessor                         0.043895
 
-  Time (in seconds):
-  Preprocessor                         0.121654
+      Residual only evaluation           0.029855 (7)
+      Jacobian & residual evaluation     0.120581 (7)
+      Linear solver                      0.153665 (7)
+    Minimizer                            0.339275
 
-    Residual only evaluation           0.065968 (7)
-    Jacobian & residual evaluation     0.303356 (7)
-    Linear solver                      0.436650 (7)
-  Minimizer                            0.890535
+    Postprocessor                        0.000540
+    Total                                0.383710
 
-  Postprocessor                        0.001684
-  Total                                1.013873
+    Termination:                      CONVERGENCE (Function tolerance reached. |cost_change|/cost: 1.769759e-09 <= 1.000000e-06)
 
-  Termination:                      CONVERGENCE (Function tolerance reached. |cost_change|/cost: 1.769756e-09 <= 1.000000e-06)
 
-.. section-macos:
+.. _section-macos:
 
 macOS
 =====
@@ -280,134 +289,160 @@ will install the latest version.
 You can also install each of the dependencies by hand using `Homebrew
 <https://brew.sh/>`_. There is no need to install
 ``BLAS`` or ``LAPACK`` separately as macOS ships with optimized
-``BLAS`` and ``LAPACK`` routines as part of the `vecLib
-<https://developer.apple.com/library/mac/#documentation/Performance/Conceptual/vecLib/Reference/reference.html>`_
+``BLAS`` and ``LAPACK`` routines as part of the `Accelerate
+<https://developer.apple.com/documentation/accelerate>`_
 framework.
 
 .. code-block:: bash
 
       # CMake
       brew install cmake
-      # google-glog and gflags
-      brew install glog gflags
+      # Abseil and GoogleTest
+      brew install abseil googletest
       # Eigen3
       brew install eigen
-      # SuiteSparse and CXSparse
-      brew install suite-sparse
+      # SuiteSparse and METIS (optional)
+      brew install suite-sparse metis
 
 We are now ready to build, test, and install Ceres.
 
 .. code-block:: bash
 
-   tar zxf ceres-solver-2.1.0.tar.gz
-   mkdir ceres-bin
-   cd ceres-bin
-   cmake ../ceres-solver-2.1.0
-   make -j3
-   make test
-   # Optionally install Ceres, it can also be exported using CMake which
-   # allows Ceres to be used without requiring installation, see the
-   # documentation for the EXPORT_BUILD_DIR option for more information.
-   make install
+   tar zxf ceres-solver-2.3.0.tar.gz
+   cmake -S ceres-solver-2.3.0 -B ceres-bin -DWITH_SUITESPARSE=ON
+   cmake --build ceres-bin -j
+   ctest --test-dir ceres-bin --output-on-failure
+   # Optionally install Ceres (or use ceres-bin directly via Ceres_DIR;
+   # see "Using Ceres with CMake" below).
+   cmake --install ceres-bin
 
 .. _section-windows:
 
 Windows
 =======
 
-`Vckpg <https://github.com/microsoft/vcpkg>`_ is the homebrew
-equivalent on Microsoft Windows and can be used to install Ceres
-Solver.
+Using a Library Manager
+-----------------------
 
-If building from source on Windows, we support building with Visual
-Studio 2015.2 of newer.
+`vcpkg <https://github.com/microsoft/vcpkg>`_ is a library manager for Microsoft
+Windows that can be used to install Ceres Solver and all its dependencies.
 
-.. NOTE::
+#. Install the library manager into a top-level directory ``vcpkg/`` on Windows
+   following the `guide
+   <https://github.com/microsoft/vcpkg#quick-start-windows>`_, e.g., using
+   Visual Studio 2022 community edition, or simply run
 
-  If you find the following CMake difficult to set up, then you may
-  be interested in a `Microsoft Visual Studio wrapper
-  <https://github.com/tbennun/ceres-windows>`_ for Ceres Solver by Tal
-  Ben-Nun.
+    .. code:: bat
 
-#. Make a toplevel directory for deps & build & src somewhere: ``ceres/``
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg integrate install
 
-#. Get dependencies; unpack them as subdirectories in ``ceres/``
-   (``ceres/eigen``, ``ceres/glog``, etc)
+#. Use vcpkg to install and build Ceres and all its dependencies, e.g., for 64
+   bit Windows
 
-   #. ``Eigen`` 3.3 . Configure and optionally install Eigen. It should be
-      exported into the CMake package registry by default as part of the
-      configure stage so installation should not be necessary.
+   .. code:: bat
 
-   #. ``google-glog`` Open up the Visual Studio solution and build it.
-   #. ``gflags`` Open up the Visual Studio solution and build it.
+      vcpkg\vcpkg.exe install ceres:x64-windows
 
-   #. (Experimental) ``SuiteSparse`` Previously SuiteSparse was not
-      available on Windows, recently it has become possible to build
-      it on Windows using the `suitesparse-metis-for-windows
-      <https://github.com/jlblancoc/suitesparse-metis-for-windows>`_
-      project.  If you wish to use ``SuiteSparse``, follow their
-      instructions for obtaining and building it.
+   Or with optional components, e.g., SuiteSparse, using
 
-   #. (Experimental) ``CXSparse`` Previously CXSparse was not
-      available on Windows, there are now several ports that enable it
-      to be, including: `[1] <https://github.com/PetterS/CXSparse>`_
-      and `[2] <https://github.com/TheFrenchLeaf/CXSparse>`_.  If you
-      wish to use ``CXSparse``, follow their instructions for
-      obtaining and building it.
+   .. code:: bat
 
-#. Unpack the Ceres tarball into ``ceres``. For the tarball, you
-   should get a directory inside ``ceres`` similar to
-   ``ceres-solver-2.1.0``. Alternately, checkout Ceres via ``git`` to
-   get ``ceres-solver.git`` inside ``ceres``.
+      vcpkg\vcpkg.exe install ceres[suitesparse]:x64-windows
 
-#. Install ``CMake``,
+#. Integrate vcpkg packages with Visual Studio to allow it to automatically
+   find all the libraries installed by vcpkg.
 
-#. Make a dir ``ceres/ceres-bin`` (for an out-of-tree build)
+   .. code:: bat
 
-#. Run ``CMake``; select the ``ceres-solver-X.Y.Z`` or
-   ``ceres-solver.git`` directory for the CMake file. Then select the
-   ``ceres-bin`` for the build dir.
+      vcpkg\vcpkg.exe integrate install
 
-#. Try running ``Configure``. It won't work. It'll show a bunch of options.
-   You'll need to set:
-
-   #. ``Eigen3_DIR`` (Set to directory containing ``Eigen3Config.cmake``)
-   #. ``GLOG_INCLUDE_DIR_HINTS``
-   #. ``GLOG_LIBRARY_DIR_HINTS``
-   #. (Optional) ``gflags_DIR`` (Set to directory containing ``gflags-config.cmake``)
-
-   to the appropriate directories where you unpacked/built them. If
-   any of the variables are not visible in the ``CMake`` GUI, create a
-   new entry for them.  We recommend using the
-   ``<NAME>_(INCLUDE/LIBRARY)_DIR_HINTS`` variables rather than
-   setting the ``<NAME>_INCLUDE_DIR`` & ``<NAME>_LIBRARY`` variables
-   directly to keep all of the validity checking, and to avoid having
-   to specify the library files manually.
-
-#. You may have to tweak some more settings to generate a MSVC
-   project.  After each adjustment, try pressing Configure & Generate
-   until it generates successfully.
-
-#. Open the solution and build it in MSVC
+#. To use Ceres in a CMake project, follow our :ref:`instructions
+   <section-using-ceres>`.
 
 
-To run the tests, select the ``RUN_TESTS`` target and hit **Build
-RUN_TESTS** from the build menu.
+Building from Source
+--------------------
+
+Ceres Solver can also be built from source on Windows using Visual Studio 2019
+or newer (or MSYS2 / MinGW-w64).
+
+#. Create a top-level directory for dependencies, build, and sources somewhere,
+   e.g., ``ceres/``
+
+#. Obtain the Ceres source code and its dependencies:
+
+   #. **Abseil** (>= 20240116) and **GoogleTest** (>= 1.14.0): The simplest way
+      to provide ``Abseil`` and ``GoogleTest`` when building from source on
+      Windows is to clone Ceres with ``--recurse-submodules``:
+
+      .. code:: bat
+
+         git clone --recurse-submodules https://github.com/ceres-solver/ceres-solver
+
+      Alternatively, you can build and install ``Abseil`` and ``GoogleTest``
+      separately using CMake and pass their install prefix via
+      ``CMAKE_PREFIX_PATH`` (or set ``absl_DIR`` / ``absl_ROOT`` and
+      ``GTest_DIR`` / ``GTest_ROOT``).
+
+   #. **Eigen** (>= 3.3.4): Unpack and configure/install Eigen using CMake, and
+      pass ``-DEigen3_ROOT=<path/to/eigen>`` (or
+      ``-DEigen3_DIR=<path/to/Eigen3Config.cmake>``) when configuring Ceres.
+
+   #. (Optional) **SuiteSparse**: You can build SuiteSparse on Windows using
+      `suitesparse-metis-for-windows
+      <https://github.com/jlblancoc/suitesparse-metis-for-windows>`_ or
+      official ``SuiteSparse`` CMake releases, or use the prebuilt binary
+      packages for Visual Studio 2019 and 2022 provided by the `CMake support
+      for SuiteSparse <https://github.com/sergiud/SuiteSparse>`_ project that
+      also include `reference LAPACK <https://www.netlib.org/blas/>`_ (and
+      BLAS). When using the prebuilt ``SuiteSparse`` archive, add its directory
+      to ``CMAKE_PREFIX_PATH``, enable ``-DWITH_SUITESPARSE=ON``, and set
+      ``BLAS_blas_LIBRARY`` and ``LAPACK_lapack_LIBRARY`` to
+      ``<suitesparse_path>/lib/libblas.lib`` and
+      ``<suitesparse_path>/lib/liblapack.lib``.
+
+#. Install ``CMake``.
+
+#. Configure and build Ceres out-of-tree in ``ceres-bin`` (either from the
+   command line or using ``cmake-gui`` and the Visual Studio IDE):
+
+   .. code:: bat
+
+      cmake -S ceres-solver -B ceres-bin -DEigen3_ROOT=C:\path\to\eigen
+      cmake --build ceres-bin --config Release
+
+   If you are using ``cmake-gui``, select ``ceres-solver`` as the source
+   directory and ``ceres-bin`` as the build directory, click **Configure**, set
+   any missing dependency locations (see
+   :ref:`options-controlling-ceres-dependency-locations`), click **Generate**,
+   and then open the generated Visual Studio solution in ``ceres-bin`` to build
+   it.
+
+#. To run the tests, run ``ctest`` from the command line:
+
+   .. code:: bat
+
+      ctest --test-dir ceres-bin -C Release --output-on-failure
+
+   Or in Visual Studio, select the ``RUN_TESTS`` target and click **Build
+   RUN_TESTS** from the build menu.
 
 Like the Linux build, you should now be able to run
-``bin/simple_bundle_adjuster``.
+``ceres-bin\bin\Release\simple_bundle_adjuster.exe``.
 
-Notes:
+.. note::
 
-#. The default build is Debug; consider switching it to release mode.
-#. Currently ``system_test`` is not working properly.
-#. CMake puts the resulting test binaries in ``ceres-bin/examples/Debug``
-   by default.
-#. The solvers supported on Windows are ``DENSE_QR``, ``DENSE_SCHUR``,
-   ``CGNR``, and ``ITERATIVE_SCHUR``.
-#. We're looking for someone to work with upstream ``SuiteSparse`` to
-   port their build system to something sane like ``CMake``, and get a
-   fully supported Windows port.
+    #. The default multi-config build in Visual Studio is ``Debug``; always pass
+       ``--config Release`` on the command line or switch the active
+       configuration to ``Release`` in Visual Studio for optimal performance.
+    #. CMake puts the resulting binaries in ``ceres-bin/bin/Debug`` or
+       ``ceres-bin/bin/Release`` by default.
+    #. Without a sparse linear algebra library, only a subset of
+       solvers is usable, namely: ``DENSE_QR``, ``DENSE_NORMAL_CHOLESKY``,
+       ``DENSE_SCHUR``, ``CGNR``, and ``ITERATIVE_SCHUR``.
 
 
 .. _section-android:
@@ -417,56 +452,52 @@ Android
 
 .. NOTE::
 
-    You will need Android NDK r15 or higher to build Ceres solver.
+    You will need Android NDK r20 or higher (current LTS such as r27 is
+    recommended) to build Ceres Solver with full C++17 support.
 
-To build Ceres for Android, we need to force ``CMake`` to find
-the toolchains from the Android NDK instead of using the standard
-ones. For example, assuming you have specified ``$NDK_DIR``:
+To build Ceres for Android, clone Ceres with ``--recurse-submodules`` (so that
+``Abseil`` is built alongside Ceres for the target Android ABI, or provide a
+cross-compiled ``Abseil`` via ``-Dabsl_DIR=...``) and instruct ``CMake`` to use
+the toolchain file from the Android NDK. For example, assuming you have
+specified ``$NDK_DIR``:
 
 .. code-block:: bash
 
-    cmake \
-    -DCMAKE_TOOLCHAIN_FILE=\
-        $NDK_DIR/build/cmake/android.toolchain.cmake \
-    -DEigen3_DIR=/path/to/Eigen3Config.cmake \
-    -DANDROID_ABI=arm64-v8a \
-    -DANDROID_STL=c++_shared \
-    -DANDROID_NATIVE_API_LEVEL=android-29 \
-    -DBUILD_SHARED_LIBS=ON \
-    -DMINIGLOG=ON \
-    <PATH_TO_CERES_SOURCE>
+    cmake -S <PATH_TO_CERES_SOURCE> -B ceres-bin \
+      -DCMAKE_TOOLCHAIN_FILE=$NDK_DIR/build/cmake/android.toolchain.cmake \
+      -DEigen3_DIR=/path/to/Eigen3Config.cmake \
+      -DANDROID_ABI=arm64-v8a \
+      -DANDROID_STL=c++_shared \
+      -DANDROID_NATIVE_API_LEVEL=android-29 \
+      -DBUILD_SHARED_LIBS=ON \
+      -DBUILD_TESTING=OFF \
+      -DBUILD_EXAMPLES=OFF \
+      -DBUILD_BENCHMARKS=OFF
+    cmake --build ceres-bin -j
 
-You can build for any Android STL or ABI, but the c++_shared STL
-and the armeabi-v7a or arm64-v8a ABI are recommended for 32bit
-and 64bit architectures, respectively. Several API levels may
-be supported, but it is recommended that you use the highest
-level that is suitable for your Android project.
+You can build for any supported Android STL or ABI (such as ``arm64-v8a``,
+``armeabi-v7a``, ``x86_64``, or ``x86``). Several API levels are supported;
+use an API level appropriate for your Android project.
 
 .. NOTE::
 
     You must always use the same API level and STL library for
     your Android project and the Ceres binaries.
 
-After building, you get a ``libceres.so`` library, which you can
-link in your Android build system by using a
-``PREBUILT_SHARED_LIBRARY`` target in your build script.
+After building, you get a ``libceres.so`` library (and Abseil libraries if
+built as shared libraries), which you can link into your Android build.
 
-If you are building any Ceres samples and would like to verify
-your library, you will need to place them in an executable public
-directory together with ``libceres.so`` on your Android device
-(e.g. in /data/local/tmp) and ensure that the STL library from
-your NDK is present in that same directory. You may then execute
-the sample by running for example:
+If you also build the Ceres sample binaries (by setting
+``-DBUILD_EXAMPLES=ON``) and would like to verify your library on an Android
+device, place the sample binary together with ``libceres.so`` (and the NDK STL
+shared library ``libc++_shared.so`` and any other shared dependencies) in an
+executable directory on the device such as ``/data/local/tmp``, and run:
 
 .. code-block:: bash
 
     adb shell
     cd /data/local/tmp
     LD_LIBRARY_PATH=/data/local/tmp ./helloworld
-
-Note that any solvers or other shared dependencies you include in
-your project must also be present in your android build config and
-your test directory on Android.
 
 .. _section-ios:
 
@@ -475,44 +506,40 @@ iOS
 
 .. NOTE::
 
-   You need iOS version 7.0 or higher to build Ceres Solver.
+   You need at least iOS 7.0 or higher to build Ceres Solver (iOS 12.0 or
+   higher is recommended for modern Xcode toolchains).
 
-To build Ceres for iOS, we need to force ``CMake`` to find the
-toolchains from the iOS SDK instead of using the standard ones. For
-example:
+To build Ceres for iOS, clone Ceres with ``--recurse-submodules`` (or provide
+``Abseil`` for iOS via ``-Dabsl_DIR=...``) and instruct ``CMake`` to use the
+``cmake/iOS.cmake`` toolchain file:
 
 .. code-block:: bash
 
-   cmake \
-   -DCMAKE_TOOLCHAIN_FILE=../ceres-solver/cmake/iOS.cmake \
-   -DEigen3_DIR=/path/to/Eigen3Config.cmake \
-   -DIOS_PLATFORM=<PLATFORM> \
-   <PATH_TO_CERES_SOURCE>
+   cmake -S <PATH_TO_CERES_SOURCE> -B ceres-bin \
+     -DCMAKE_TOOLCHAIN_FILE=<PATH_TO_CERES_SOURCE>/cmake/iOS.cmake \
+     -DEigen3_DIR=/path/to/Eigen3Config.cmake \
+     -DIOS_PLATFORM=<PLATFORM> \
+     -DBUILD_TESTING=OFF \
+     -DBUILD_EXAMPLES=OFF \
+     -DBUILD_BENCHMARKS=OFF
+   cmake --build ceres-bin --config Release
 
-``PLATFORM`` can be: ``OS``, ``SIMULATOR`` or ``SIMULATOR64``. You can
-build for ``OS`` (``armv7``, ``armv7s``, ``arm64``), ``SIMULATOR``
-(``i386``) or ``SIMULATOR64`` (``x86_64``) separately and use ``lipo``
-to merge them into one static library.  See ``cmake/iOS.cmake`` for
-more options.
+``PLATFORM`` can be ``OS`` (``iphoneos``, ``arm64``), ``SIMULATOR64``
+(``iphonesimulator``, ``x86_64``), or ``SIMULATOR`` (``iphonesimulator``,
+``i386``). See ``cmake/iOS.cmake`` for additional options such as
+``IOS_DEPLOYMENT_TARGET``.
 
-.. NOTE::
+After building, you will get ``libceres.a`` (and the required ``Abseil`` static
+libraries when built from the submodule), which you will need to link into your
+Xcode project.
 
-   iOS version 11.0+ requires a 64-bit architecture, so you cannot
-   build for armv7/armv7s with iOS 11.0+ (only arm64 is supported).
+The default iOS configuration builds Ceres Solver using ``Eigen`` and
+``Abseil``, which is sufficient for solving small to moderate sized problems
+(and can also use Apple's ``Accelerate`` sparse solvers when available).
 
-After building, you will get a ``libceres.a`` library, which you will
-need to add to your Xcode project.
-
-The default CMake configuration builds a bare bones version of Ceres
-Solver that only depends on Eigen (``MINIGLOG`` is compiled into Ceres
-if it is used), this should be sufficient for solving small to
-moderate sized problems (No ``SPARSE_SCHUR``,
-``SPARSE_NORMAL_CHOLESKY`` linear solvers and no ``CLUSTER_JACOBI``
-and ``CLUSTER_TRIDIAGONAL`` preconditioners).
-
-If you decide to use ``LAPACK`` and ``BLAS``, then you also need to
-add ``Accelerate.framework`` to your Xcode project's linking
-dependency.
+If you decide to use ``Accelerate`` (including ``AccelerateSparse``), you also
+need to add ``Accelerate.framework`` to your Xcode project's linked
+frameworks.
 
 .. _section-customizing:
 
@@ -526,25 +553,25 @@ via ``-D<OPTION>=<ON/OFF>`` when running ``CMake`` from the command
 line.  In general, you should only modify these options from their
 defaults if you know what you are doing.
 
+For additional configure diagnostics, pass ``--log-level=VERBOSE``,
+``--log-level=DEBUG`` or ``--log-level=TRACE`` to ``CMake``.  To keep a log
+level for subsequent configure runs in a build directory, set
+``CMAKE_MESSAGE_LOG_LEVEL``, for example with
+``-DCMAKE_MESSAGE_LOG_LEVEL=DEBUG``.  The command-line option takes precedence
+over the variable.
+
+``STATUS`` messages describe normal configuration progress.  ``VERBOSE``
+messages add detailed toolchain and configuration choices.  ``DEBUG`` messages
+expose internal setup details.  ``TRACE`` is reserved for temporary low-level
+diagnostics.
+
 .. NOTE::
 
- If you are setting variables via ``-D<VARIABLE>=<VALUE>`` when
- calling ``CMake``, it is important to understand that this forcibly
- **overwrites** the variable ``<VARIABLE>`` in the ``CMake`` cache at
- the start of *every configure*.
-
- This can lead to confusion if you are invoking the ``CMake`` `curses
- <http://www.gnu.org/software/ncurses/ncurses.html>`_ terminal GUI
- (via ``ccmake``, e.g. ```ccmake -D<VARIABLE>=<VALUE>
- <PATH_TO_SRC>``).  In this case, even if you change the value of
- ``<VARIABLE>`` in the ``CMake`` GUI, your changes will be
- **overwritten** with the value passed via ``-D<VARIABLE>=<VALUE>``
- (if one exists) at the start of each configure.
-
- As such, it is generally easier not to pass values to ``CMake`` via
- ``-D`` and instead interactively experiment with their values in the
- ``CMake`` GUI.  If they are not present in the *Standard View*,
- toggle to the *Advanced View* with ``<t>``.
+   Passing ``-D<VARIABLE>=<VALUE>`` on the command line forcibly overwrites
+   ``<VARIABLE>`` in the ``CMake`` cache at the start of every configure. If you
+   are using the interactive ``ccmake`` terminal GUI, avoid passing ``-D`` on
+   the ``ccmake`` command line so that interactive changes in the GUI (use
+   ``<t>`` to toggle *Advanced View*) are not overwritten on reconfigure.
 
 
 Modifying default compilation flags
@@ -579,167 +606,204 @@ CMake with:
 Options controlling Ceres configuration
 ---------------------------------------
 
-#. ``LAPACK [Default: ON]``: If this option is enabled, and the ``BLAS`` and
-   ``LAPACK`` libraries are found, Ceres will enable **direct** use of
-   ``LAPACK`` routines (i.e. Ceres itself will call them).  If this option is
-   disabled, then Ceres will not require ``LAPACK`` or ``BLAS``.  It is
-   however still possible that Ceres may call ``LAPACK`` routines indirectly
-   via SuiteSparse if ``LAPACK=OFF`` and ``SUITESPARSE=ON``.  Finally
-   note that if ``LAPACK=ON`` and ``SUITESPARSE=ON``, the ``LAPACK`` and
-   ``BLAS`` libraries used by SuiteSparse and Ceres should be the same.
+Ceres-specific feature options use the ``WITH_`` prefix. The configure step
+prints a summary of enabled features and discovered dependencies at the end of
+the output. The summary includes the Ceres version, package versions when they
+are reported by the package finders, and optional packages that were not found.
+An unavailable optional package does not change the corresponding cache option.
 
-#. ``SUITESPARSE [Default: ON]``: By default, Ceres will link to
-   ``SuiteSparse`` if it and all of its dependencies are present. Turn
-   this ``OFF`` to build Ceres without ``SuiteSparse``.
-
-   .. NOTE::
-
-      SuiteSparse is licensed under a mixture of GPL/LGPL/Commercial
-      terms.  Ceres requires some components that are only licensed under
-      GPL/Commercial terms.
-
-#. ``CXSPARSE [Default: ON]``: By default, Ceres will link to
-   ``CXSparse`` if all its dependencies are present. Turn this ``OFF``
-   to build Ceres without ``CXSparse``.
-
-   .. NOTE::
-
-      CXSparse is licensed under the LGPL.
-
-#. ``ACCELERATESPARSE [Default: ON]``: By default, Ceres will link to
-   Apple's Accelerate framework directly if a version of it is detected
-   which supports solving sparse linear systems.  Note that on Apple OSs
-   Accelerate usually also provides the BLAS/LAPACK implementations and
-   so would be linked against irrespective of the value of ``ACCELERATESPARSE``.
-
-#. ``EIGENSPARSE [Default: ON]``: By default, Ceres will not use
-   Eigen's sparse Cholesky factorization.
-
-#. ``GFLAGS [Default: ON]``: Turn this ``OFF`` to build Ceres without
-   ``gflags``. This will also prevent some of the example code from
-   building.
-
-#. ``MINIGLOG [Default: OFF]``: Ceres includes a stripped-down,
-   minimal implementation of ``glog`` which can optionally be used as
-   a substitute for ``glog``, thus removing ``glog`` as a required
-   dependency. Turn this ``ON`` to use this minimal ``glog``
-   implementation.
-
-#. ``SCHUR_SPECIALIZATIONS [Default: ON]``: If you are concerned about
-   binary size/compilation time over some small (10-20%) performance
-   gains in the ``SPARSE_SCHUR`` solver, you can disable some of the
-   template specializations by turning this ``OFF``.
-
-#. ``CERES_THREADING_MODEL [Default: CXX_THREADS > OPENMP > NO_THREADS]``:
-   Multi-threading backend Ceres should be compiled with.  This will
-   automatically be set to only accept the available subset of threading
-   options in the CMake GUI.
-
-#. ``BUILD_SHARED_LIBS [Default: OFF]``: By default Ceres is built as
-   a static library, turn this ``ON`` to instead build Ceres as a
-   shared library.
-
-#. ``EXPORT_BUILD_DIR [Default: OFF]``: By default Ceres is configured
-   solely for installation, and so must be installed in order for
-   clients to use it.  Turn this ``ON`` to export Ceres' build
-   directory location into the `user's local CMake package registry
-   <http://www.cmake.org/cmake/help/v3.5/manual/cmake-packages.7.html#user-package-registry>`_
-   where it will be detected **without requiring installation** in a
-   client project using CMake when `find_package(Ceres)
-   <http://www.cmake.org/cmake/help/v3.5/command/find_package.html>`_
-   is invoked.
+#. ``BUILD_BENCHMARKS [Default: ON]``: Enable the Ceres benchmarking suite
+   when the benchmark dependency is available.
 
 #. ``BUILD_DOCUMENTATION [Default: OFF]``: Use this to enable building
-   the documentation, requires `Sphinx <http://sphinx-doc.org/>`_ and
+   the documentation. This requires `Sphinx <https://www.sphinx-doc.org/>`_ and
    the `sphinx-rtd-theme
    <https://pypi.org/project/sphinx-rtd-theme/>`_ package
-   available from the Python package index. In addition, ``make
-   ceres_docs`` can be used to build only the documentation.
+   available from the Python package index. In addition, ``make ceres_docs``
+   can be used to build only the documentation.
 
-#. ``MSVC_USE_STATIC_CRT [Default: OFF]`` *Windows Only*: By default
-   Ceres will use the Visual Studio default, *shared* C-Run Time (CRT)
-   library.  Turn this ``ON`` to use the *static* C-Run Time library
-   instead.
+#. ``BUILD_EXAMPLES [Default: ON]``: Build the Ceres example programs.
 
-#. ``LIB_SUFFIX [Default: "64" on non-Debian/Arch based 64-bit Linux,
-   otherwise: ""]``: The suffix to append to the library install
-   directory, built from:
-   ``${CMAKE_INSTALL_PREFIX}/lib${LIB_SUFFIX}``.
+#. ``BUILD_SHARED_LIBS [Default: OFF]``: By default Ceres is built as
+   a static library. Turn this ``ON`` to build Ceres as a shared library.
 
-   The filesystem hierarchy standard recommends that 64-bit systems
-   install native libraries to lib64 rather than lib.  Most Linux
-   distributions follow this convention, but Debian and Arch based
-   distros do not.  Note that the only generally sensible values for
-   ``LIB_SUFFIX`` are "" and "64".
+#. ``BUILD_TESTING [Default: ON]``: Enable the Ceres unit and integration tests.
 
-   Although by default Ceres will auto-detect non-Debian/Arch based
-   64-bit Linux distributions and default ``LIB_SUFFIX`` to "64", this
-   can always be overridden by manually specifying LIB_SUFFIX using:
-   ``-DLIB_SUFFIX=<VALUE>`` when invoking CMake.
+#. ``CMAKE_EXPORT_PACKAGE_REGISTRY [Default: OFF]``: Ceres always generates a
+   build-tree package export, so clients can use the build directory without
+   installing Ceres. Set this standard CMake variable to ``ON`` to also have
+   ``export(PACKAGE)`` register the build directory in the `user's local
+   CMake package registry
+   <https://cmake.org/cmake/help/latest/manual/cmake-packages.7.html#user-package-registry>`_,
+   so that it is found automatically by ``find_package(Ceres)`` without
+   setting ``Ceres_DIR``. It is left disabled by default, matching CMake's
+   own default for ``export(PACKAGE)``.
 
+#. ``CMAKE_INSTALL_LIBDIR [Default: platform-dependent]``: Set this standard
+   CMake variable to choose the directory below ``CMAKE_INSTALL_PREFIX`` where
+   Ceres libraries are installed. It defaults according to CMake's
+   ``GNUInstallDirs`` module.
+
+#. ``CMAKE_MSVC_RUNTIME_LIBRARY [Default: compiler default]`` *Windows Only*:
+   Set this standard CMake variable to select the MSVC runtime library used to
+   build Ceres. When it is not set, CMake uses the compiler default.
+
+#. ``WITH_ACCELERATESPARSE [Default: ON]``: By default, Ceres will link to
+   Apple's Accelerate framework directly if a version of it is detected
+   which supports solving sparse linear systems. On Apple operating systems,
+   Accelerate usually also provides the BLAS and LAPACK implementations and
+   is linked irrespective of this option.
+
+#. ``WITH_BITCODE [Default: OFF]`` *Apple platforms*: Enable bitcode for iOS
+   builds. This disables Eigen's additional Clang inlining optimization.
+
+#. ``WITH_CUDA [Default: default]``: Enable CUDA linear algebra solvers. The
+   value can be ``OFF``, ``default``, or ``static``. The latter links against
+   static CUDA runtime libraries when supported.
+
+#. ``WITH_CUDSS [Default: ON]``: Enable NVIDIA cuDSS support for sparse CUDA
+   linear solvers (``CUDA_SPARSE``). This option is available when ``WITH_CUDA``
+   is enabled and the ``cudss`` package is found.
+
+#. ``WITH_CUSTOM_BLAS [Default: ON]``: Use Ceres' custom BLAS routines instead
+   of Eigen's implementations where available.
+
+#. ``WITH_EIGENMETIS [Default: ON]``: Enable METIS support for Eigen's sparse
+   solvers when METIS is available. This option is available when
+   ``WITH_EIGENSPARSE`` is enabled.
+
+#. ``WITH_EIGENSPARSE [Default: ON]``: By default, Ceres will use Eigen's
+   sparse Cholesky factorization.
+
+#. ``WITH_LAPACK [Default: ON]``: If this option is enabled, and the ``BLAS`` and
+   ``LAPACK`` libraries are found, Ceres will enable **direct** use of
+   ``LAPACK`` routines. If this option is disabled, Ceres does not use
+   ``LAPACK`` directly. SuiteSparse determines its own ``BLAS`` and ``LAPACK``
+   link dependencies independently. Direct LAPACK use is always disabled for
+   iOS builds because Apple treats ``dsyrk_`` as a private API.
+
+#. ``WITH_SANITIZERS [Default: empty]``: A semicolon-separated list of
+   sanitizers to enable, such as ``address`` or ``thread``.
+
+#. ``WITH_SCHUR_SPECIALIZATIONS [Default: ON]``: If you are concerned about
+   binary size or compilation time over some small performance gains in the
+   ``SPARSE_SCHUR`` solver, you can disable some of the template
+   specializations by turning this ``OFF``.
+
+#. ``WITH_STRIPPED_DEBUG_SYMBOLS [Default: ON]`` *Android platforms*: Strip
+   debug symbols from Android builds to reduce file sizes.
+
+#. ``WITH_SUITESPARSE [Default: OFF]``: SuiteSparse support is opt-in. Turn this
+   ``ON`` to link Ceres against ``SuiteSparse``, provided it and all of its
+   dependencies are present.
+
+   .. WARNING::
+
+      SuiteSparse is licensed under a mixture of GPL/LGPL/Commercial terms.
+      Ceres requires the CHOLMOD supernodal factorization and SPQR components,
+      which are only available under GPL/Commercial terms. Consequently, unless
+      you hold a commercial SuiteSparse license, a Ceres build with
+      ``WITH_SUITESPARSE=ON`` is GPL licensed. This is why SuiteSparse support is
+      opt-in rather than enabled by default. Obtaining a commercial SuiteSparse
+      license removes this restriction.
+
+#. ``WITH_UNINSTALL_TARGET [Default: ON]``: Add an ``uninstall`` target to
+   remove files installed by Ceres.
+
+
+.. _options-controlling-ceres-dependency-locations:
 
 Options controlling Ceres dependency locations
 ----------------------------------------------
 
-Ceres uses the ``CMake`` `find_package
-<http://www.cmake.org/cmake/help/v3.5/command/find_package.html>`_
-function to find all of its dependencies. Dependencies that reliably
-provide config files on all supported platforms are expected to be
-found in "Config" mode of ``find_package`` (``Eigen``, ``gflags``).
-This means you can use the standard ``CMake`` facilities to customize
-where these dependencies are found, such as ``CMAKE_PREFIX_PATH``,
-the ``<DEPENDENCY_NAME>_DIR`` variables, or since ``CMake`` 3.12 the
-``<DEPENDENCY_NAME>_ROOT`` variables.
+Ceres uses the ``CMake`` `find_package()
+<https://cmake.org/cmake/help/latest/command/find_package.html>`_
+command to find all of its dependencies.
 
-Other dependencies are found using
-``Find<DEPENDENCY_NAME>.cmake`` scripts which are either included in
-Ceres (for most dependencies) or are shipped as standard with
-``CMake`` (for ``LAPACK`` & ``BLAS``).  These scripts will search all
-of the "standard" install locations for various OSs for each
-dependency.  However, particularly for Windows, they may fail to find
-the library, in this case you will have to manually specify its
-installed location.  The ``Find<DEPENDENCY_NAME>.cmake`` scripts
-shipped with Ceres support two ways for you to do this:
+#. **Config-mode packages** (``Eigen3``, ``absl``, ``GTest``, ``benchmark``,
+   ``cudss``, ``TBB``, and ``SuiteSparse`` >= 7.0):
 
-#. Set the *hints* variables specifying the *directories* to search in
-   preference, but in addition, to the search directories in the
-   ``Find<DEPENDENCY_NAME>.cmake`` script:
+   These dependencies provide CMake package configuration files
+   (``<PackageName>Config.cmake`` or ``<lowercase>-config.cmake``). You can
+   customize where CMake searches for them using standard CMake variables:
 
-   - ``<DEPENDENCY_NAME (CAPS)>_INCLUDE_DIR_HINTS``
-   - ``<DEPENDENCY_NAME (CAPS)>_LIBRARY_DIR_HINTS``
+   - ``CMAKE_PREFIX_PATH``: A semicolon-separated list of installation prefixes
+     to search (e.g., ``-DCMAKE_PREFIX_PATH="/opt/local;/custom/prefix"``).
+   - ``<PackageName>_ROOT``: The installation prefix for a specific package
+     (e.g., ``-DEigen3_ROOT=/path/to/eigen``, ``-Dabsl_ROOT=/path/to/abseil``,
+     ``-DTBB_ROOT=/path/to/tbb``).
+   - ``<PackageName>_DIR``: The exact directory containing the package's
+     ``<PackageName>Config.cmake`` file (e.g., ``-DEigen3_DIR=...``,
+     ``-Dabsl_DIR=...``, ``-DGTest_DIR=...``, ``-Dcudss_DIR=...``).
 
-   These variables should be set via ``-D<VAR>=<VALUE>``
-   ``CMake`` arguments as they are not visible in the GUI.
+   Note that if ``third_party/abseil-cpp`` and ``third_party/googletest`` are
+   present (e.g., when Ceres is cloned with ``--recurse-submodules``), Ceres
+   uses the bundled submodules directly instead of searching for installed
+   ``absl`` and ``GTest`` packages.
 
-#. Set the variables specifying the *explicit* include directory
-   and library file to use:
+#. **CUDA Toolkit** (``CUDAToolkit``):
 
-   - ``<DEPENDENCY_NAME (CAPS)>_INCLUDE_DIR``
-   - ``<DEPENDENCY_NAME (CAPS)>_LIBRARY``
+   When ``WITH_CUDA`` is enabled, Ceres uses CMake's standard
+   `FindCUDAToolkit
+   <https://cmake.org/cmake/help/latest/module/FindCUDAToolkit.html>`_ module.
+   You can customize the CUDA installation location using ``CUDAToolkit_ROOT``
+   or ``CUDACXX``.
 
-   This bypasses *all* searching in the
-   ``Find<DEPENDENCY_NAME>.cmake`` script, but validation is still
-   performed.
+#. **Find-module dependencies** (``METIS``, ``SuiteSparse`` < 7.0 without
+   CMake config files, ``AccelerateSparse``, and ``Sphinx``):
 
-   These variables are available to set in the ``CMake`` GUI. They are
-   visible in the *Standard View* if the library has not been found
-   (but the current Ceres configuration requires it), but are always
-   visible in the *Advanced View*.  They can also be set directly via
-   ``-D<VAR>=<VALUE>`` arguments to ``CMake``.
+   When a dependency does not provide a CMake package configuration file, Ceres
+   uses its bundled ``Find<Package>.cmake`` modules. You can guide these modules
+   using ``CMAKE_PREFIX_PATH``, ``CMAKE_INCLUDE_PATH``, ``CMAKE_LIBRARY_PATH``,
+   ``<Package>_ROOT``, or by setting explicit cache variables:
+
+   - **METIS**: ``METIS_INCLUDE_DIR`` and ``METIS_LIBRARY``.
+   - **SuiteSparse** (fallback when ``SuiteSparseConfig.cmake`` is not present):
+     ``SuiteSparse_<COMPONENT>_INCLUDE_DIR`` and
+     ``SuiteSparse_<COMPONENT>_LIBRARY`` (for components ``AMD``, ``CAMD``,
+     ``CCOLAMD``, ``CHOLMOD``, ``COLAMD``, ``SPQR``, ``Config``).
+   - **Sphinx**: ``Sphinx_BUILD_EXECUTABLE``.
+
+.. NOTE::
+
+   The legacy Ceres-specific ``<DEPENDENCY_NAME>_INCLUDE_DIR_HINTS`` and
+   ``<DEPENDENCY_NAME>_LIBRARY_DIR_HINTS`` variables from earlier versions of
+   Ceres have been removed. Use ``CMAKE_PREFIX_PATH`` or ``<PackageName>_ROOT``
+   instead.
 
 Building using custom BLAS & LAPACK installs
 ----------------------------------------------
 
 If the standard find package scripts for ``BLAS`` & ``LAPACK`` which
 ship with ``CMake`` fail to find the desired libraries on your system,
-try setting ``CMAKE_LIBRARY_PATH`` to the path(s) to the directories
-containing the ``BLAS`` & ``LAPACK`` libraries when invoking ``CMake``
-to build Ceres via ``-D<VAR>=<VALUE>``.  This should result in the
+try setting ``CMAKE_LIBRARY_PATH`` (or ``CMAKE_PREFIX_PATH``) to the path(s) to
+the directories containing the ``BLAS`` & ``LAPACK`` libraries when invoking
+``CMake`` to build Ceres via ``-D<VAR>=<VALUE>``.  This should result in the
 libraries being found for any common variant of each.
 
 Alternatively, you may also directly specify the ``BLAS_LIBRARIES`` and
 ``LAPACK_LIBRARIES`` variables via ``-D<VAR>=<VALUE>`` when invoking CMake
 to configure Ceres.
+
+.. _section-bazel:
+
+Building with Bazel
+===================
+
+Ceres Solver also provides a `Bazel <https://bazel.build/>`_ build configuration
+using Bzlmod (``MODULE.bazel``), which builds Ceres with ``Eigen`` and
+``Abseil`` (and ``GoogleTest`` / ``Google Benchmark`` for tests and benchmarks):
+
+.. code-block:: bash
+
+   # Build the Ceres library
+   bazel build //:ceres
+
+   # Build and run the unit tests
+   bazel test //...
+
+   # Build the example binaries
+   bazel build //examples/...
 
 .. _section-using-ceres:
 
@@ -747,21 +811,18 @@ Using Ceres with CMake
 ======================
 
 In order to use Ceres in client code with CMake using `find_package()
-<http://www.cmake.org/cmake/help/v3.5/command/find_package.html>`_
+<https://cmake.org/cmake/help/latest/command/find_package.html>`_
 then either:
 
-#. Ceres must have been installed with ``make install``.  If the
-    install location is non-standard (i.e. is not in CMake's default
-    search paths) then it will not be detected by default, see:
-    :ref:`section-local-installations`.
+#. Ceres must have been installed with ``cmake --install`` (or
+   ``make install``). If the install location is non-standard (i.e. is not in
+   CMake's default search paths) then it will not be detected by default; see
+   :ref:`section-local-installations`.
 
-    Note that if you are using a non-standard install location you
-    should consider exporting Ceres instead, as this will not require
-    any extra information to be provided in client code for Ceres to
-    be detected.
-
-#. Or Ceres' build directory must have been exported by enabling the
-    ``EXPORT_BUILD_DIR`` option when Ceres was configured.
+#. Or Ceres' build directory can be used directly without installing (see
+   :ref:`section-install-vs-export`) by setting ``Ceres_DIR`` to the Ceres
+   build directory (or by enabling ``CMAKE_EXPORT_PACKAGE_REGISTRY=ON`` when
+   configuring Ceres).
 
 
 As an example of how to use Ceres, to compile `examples/helloworld.cc
@@ -771,7 +832,7 @@ used:
 
 .. code-block:: cmake
 
-    cmake_minimum_required(VERSION 3.5)
+    cmake_minimum_required(VERSION 3.22)
 
     project(helloworld)
 
@@ -811,32 +872,36 @@ built with.
 
 The Ceres components which can be specified are:
 
-#. ``LAPACK``: Ceres built using LAPACK (``LAPACK=ON``).
+#. ``LAPACK``: Ceres built with direct LAPACK support (``WITH_LAPACK=ON``).
 
-#. ``SuiteSparse``: Ceres built with SuiteSparse (``SUITESPARSE=ON``).
+#. ``SuiteSparse``: Ceres built with SuiteSparse support (``WITH_SUITESPARSE=ON``).
 
-#. ``CXSparse``: Ceres built with CXSparse (``CXSPARSE=ON``).
-
-#. ``AccelerateSparse``: Ceres built with Apple's Accelerate sparse solvers (``ACCELERATESPARSE=ON``).
+#. ``AccelerateSparse``: Ceres built with Apple's Accelerate sparse solver
+   support (``WITH_ACCELERATESPARSE=ON``).
 
 #. ``EigenSparse``: Ceres built with Eigen's sparse Cholesky factorization
-   (``EIGENSPARSE=ON``).
+   support (``WITH_EIGENSPARSE=ON``).
 
-#. ``SparseLinearAlgebraLibrary``: Ceres built with *at least one* sparse linear
-   algebra library.  This is equivalent to ``SuiteSparse`` **OR** ``CXSparse``
-   **OR** ``AccelerateSparse``  **OR** ``EigenSparse``.
+#. ``CUDA``: Ceres built with NVIDIA CUDA support for ``DENSE_QR``,
+   ``DENSE_NORMAL_CHOLESKY``, ``DENSE_SCHUR``, and ``CGNR`` (``WITH_CUDA``).
+
+#. ``cuDSS``: Ceres built with NVIDIA cuDSS sparse solver support
+   (``WITH_CUDA`` and ``WITH_CUDSS=ON``).
+
+#. ``SparseLinearAlgebraLibrary``: Ceres built with *at least one*
+   sparse linear algebra library.  This is equivalent to
+   ``SuiteSparse`` **OR** ``AccelerateSparse`` **OR** ``EigenSparse`` **OR**
+   ``cuDSS``.
 
 #. ``SchurSpecializations``: Ceres built with Schur specializations
-   (``SCHUR_SPECIALIZATIONS=ON``).
+   (``WITH_SCHUR_SPECIALIZATIONS=ON``).
 
-#. ``OpenMP``: Ceres built with OpenMP (``CERES_THREADING_MODEL=OPENMP``).
-
-#. ``Multithreading``: Ceres built with *a* multithreading library.
-   This is equivalent to (``CERES_THREAD != NO_THREADS``).
+#. ``Multithreading``: Ceres built with multithreading support, which is
+   always available.
 
 To specify one/multiple Ceres components use the ``COMPONENTS`` argument to
 `find_package()
-<http://www.cmake.org/cmake/help/v3.5/command/find_package.html>`_ like so:
+<https://cmake.org/cmake/help/latest/command/find_package.html>`_ like so:
 
 .. code-block:: cmake
 
@@ -854,12 +919,12 @@ Specify Ceres version
 
 Additionally, when CMake has found Ceres it can optionally check the package
 version, if it has been specified in the `find_package()
-<http://www.cmake.org/cmake/help/v3.5/command/find_package.html>`_
+<https://cmake.org/cmake/help/latest/command/find_package.html>`_
 call.  For example:
 
 .. code-block:: cmake
 
-    find_package(Ceres 1.2.3 REQUIRED)
+    find_package(Ceres 2.3.0 REQUIRED)
 
 .. _section-local-installations:
 
@@ -867,20 +932,18 @@ Local installations
 -------------------
 
 If Ceres was installed in a non-standard path by specifying
-``-DCMAKE_INSTALL_PREFIX="/some/where/local"``, then the user should
-add the **PATHS** option to the ``find_package()`` command, e.g.,
+``-DCMAKE_INSTALL_PREFIX="/some/where/local"``, you can either pass
+``-DCMAKE_PREFIX_PATH="/some/where/local"`` (or
+``-DCeres_DIR="/some/where/local/lib/cmake/Ceres"``) when running CMake to
+configure your project, or add the **PATHS** option to the ``find_package()``
+command in your ``CMakeLists.txt``:
 
 .. code-block:: cmake
 
    find_package(Ceres REQUIRED PATHS "/some/where/local/")
 
-Note that this can be used to have multiple versions of Ceres
-installed.  However, particularly if you have only a single version of
-Ceres which you want to use but do not wish to install to a system
-location, you should consider exporting Ceres using the
-``EXPORT_BUILD_DIR`` option instead of a local install, as exported
-versions of Ceres will be automatically detected by CMake,
-irrespective of their location.
+If you do not wish to install Ceres to a system location, you can also use
+Ceres directly from its build directory (see :ref:`section-install-vs-export`).
 
 Understanding the CMake Package System
 ----------------------------------------
@@ -890,31 +953,25 @@ here we cover some of the most common CMake misunderstandings that
 crop up when using Ceres.  For more detailed CMake usage, the
 following references are very useful:
 
-- The `official CMake tutorial <http://www.cmake.org/cmake-tutorial/>`_
+- The `official CMake tutorial <https://cmake.org/cmake/help/latest/guide/tutorial/index.html>`_
 
    Provides a tour of the core features of CMake.
 
-- `ProjectConfig tutorial
-  <http://www.cmake.org/Wiki/CMake/Tutorials/How_to_create_a_ProjectConfig.cmake_file>`_
-  and the `cmake-packages documentation
-  <http://www.cmake.org/cmake/help/git-master/manual/cmake-packages.7.html>`_
+- `cmake-packages documentation
+  <https://cmake.org/cmake/help/latest/manual/cmake-packages.7.html>`_
 
-   Cover how to write a ``ProjectConfig.cmake`` file, discussed below,
-   for your own project when installing or exporting it using CMake.
-   It also covers how these processes in conjunction with
-   ``find_package()`` are actually handled by CMake.  The
-   `ProjectConfig tutorial
-   <http://www.cmake.org/Wiki/CMake/Tutorials/How_to_create_a_ProjectConfig.cmake_file>`_
-   is the older style, currently used by Ceres for compatibility with
-   older versions of CMake.
+   Covers how to write a ``ProjectConfig.cmake`` file, discussed below,
+   for your own project when installing or exporting it using CMake,
+   and how these processes in conjunction with ``find_package()`` are
+   handled by CMake.
 
   .. NOTE :: **Targets in CMake.**
 
     All libraries and executables built using CMake are represented as
     *targets* created using `add_library()
-    <http://www.cmake.org/cmake/help/v3.5/command/add_library.html>`_
+    <https://cmake.org/cmake/help/latest/command/add_library.html>`_
     and `add_executable()
-    <http://www.cmake.org/cmake/help/v3.5/command/add_executable.html>`_.
+    <https://cmake.org/cmake/help/latest/command/add_executable.html>`_.
     Targets encapsulate the rules and dependencies (which can be other
     targets) required to build or link against an object.  This allows
     CMake to implicitly manage dependency chains.  Thus it is
@@ -924,15 +981,14 @@ following references are very useful:
     public dependencies of ``A``.
 
 When a project like Ceres is installed using CMake, or its build
-directory is exported into the local CMake package registry (see
-:ref:`section-install-vs-export`), in addition to the public headers
-and compiled libraries, a set of CMake-specific project configuration
-files are also installed to: ``<INSTALL_ROOT>/lib/cmake/Ceres`` (if Ceres
-is installed), or created in the build directory (if Ceres' build
-directory is exported).  When `find_package
-<http://www.cmake.org/cmake/help/v3.5/command/find_package.html>`_ is
+directory is exported (see :ref:`section-install-vs-export`), in addition to
+the public headers and compiled libraries, a set of CMake-specific project
+configuration files are also installed to: ``<INSTALL_ROOT>/lib/cmake/Ceres``
+(if Ceres is installed), or created in the build directory. When `find_package
+<https://cmake.org/cmake/help/latest/command/find_package.html>`_ is
 invoked, CMake checks various standard install locations (including
-``/usr/local`` on Linux & UNIX systems), and the local CMake package
+``/usr/local`` on Linux & UNIX systems), any paths specified via
+``CMAKE_PREFIX_PATH`` or ``Ceres_DIR``, and the local CMake package
 registry for CMake configuration files for the project to be found
 (i.e. Ceres in the case of ``find_package(Ceres)``).  Specifically it
 looks for:
@@ -972,23 +1028,15 @@ Since v2.0, Ceres has used the target namespace feature of CMake to prefix
 its export targets: ``Ceres::ceres``.  However, historically the Ceres target
 did not have a namespace, and was just called ``ceres``.
 
-Whilst an alias target called ``ceres`` is still provided in v2.0 for backwards
-compatibility, it creates a potential drawback, if you failed to call
+Whilst a deprecated target called ``ceres`` is still provided for backwards
+compatibility (and emits a CMake deprecation warning when linked against), it
+creates a potential drawback: if you failed to call
 ``find_package(Ceres)``, and Ceres is installed in a default search path for
 your compiler, then instead of matching the imported Ceres target, it will
-instead match the installed libceres.so/dylib/a library.  If this happens you
-will get either compiler errors for missing include directories or linker errors
-due to missing references to Ceres public dependencies.
-
-Note that this description applies both to projects that are
-**installed** using CMake, and to those whose **build directory is
-exported** using `export()
-<http://www.cmake.org/cmake/help/v3.5/command/export.html>`_ (instead
-of `install()
-<http://www.cmake.org/cmake/help/v3.5/command/install.html>`_).  Ceres
-supports both installation and export of its build directory if the
-``EXPORT_BUILD_DIR`` option is enabled, see
-:ref:`section-customizing`.
+instead match the installed ``libceres.so``/``dylib``/``a`` library.  If this
+happens you will get either compiler errors for missing include directories or
+linker errors due to missing references to Ceres public dependencies. Always
+link against ``Ceres::ceres``.
 
 .. _section-install-vs-export:
 
@@ -997,17 +1045,23 @@ Installing a project with CMake vs Exporting its build directory
 
 When a project is **installed**, the compiled libraries and headers
 are copied from the source & build directory to the install location,
-and it is these copied files that are used by any client code.  When a
-project's build directory is **exported**, instead of copying the
-compiled libraries and headers, CMake creates an entry for the project
-in the `user's local CMake package registry
-<http://www.cmake.org/cmake/help/v3.5/manual/cmake-packages.7.html#user-package-registry>`_,
-``<USER_HOME>/.cmake/packages`` on Linux & macOS, which contains the
-path to the project's build directory which will be checked by CMake
-during a call to ``find_package()``.  The effect of which is that any
-client code uses the compiled libraries and headers in the build
-directory directly, **thus not requiring the project to be installed
-to be used**.
+and it is these copied files that are used by any client code.
+
+Ceres also generates ``CeresConfig.cmake`` and ``CeresTargets.cmake`` directly
+in its **build directory** using `export()
+<https://cmake.org/cmake/help/latest/command/export.html>`_, so client code can
+use the compiled libraries and headers in the build directory directly
+**without requiring Ceres to be installed**:
+
+- By default, you can point a client project at the Ceres build directory by
+  passing ``-DCeres_DIR=/path/to/ceres-bin`` when configuring the client
+  project.
+- Alternatively, if you pass ``-DCMAKE_EXPORT_PACKAGE_REGISTRY=ON`` when
+  configuring Ceres, CMake also records the path to the Ceres build directory
+  in the `user's local CMake package registry
+  <https://cmake.org/cmake/help/latest/manual/cmake-packages.7.html#user-package-registry>`_
+  (``<USER_HOME>/.cmake/packages`` on Linux & macOS), which is checked
+  automatically during ``find_package(Ceres)``.
 
 Installing / Exporting a project that uses Ceres
 --------------------------------------------------
@@ -1022,30 +1076,24 @@ exported**.
 
 Thus, when a project ``Foo`` which uses Ceres is exported, its list of
 dependencies as seen by another project ``Bar`` which imports ``Foo``
-via: ``find_package(Foo REQUIRED)`` will contain: ``ceres``.  However,
-the definition of ``ceres`` as an imported target is **not
-(re)exported** when Foo is exported.  Hence, without any additional
-steps, when processing ``Bar``, ``ceres`` will not be defined as an
-imported target.  Thus, when processing ``Bar``, CMake will assume
-that ``ceres`` refers only to: ``libceres.a/so/dylib/lib`` (the
-compiled Ceres library) directly if it is on the current list of
-search paths.  In which case, no CMake errors will occur, but ``Bar``
-will not link properly, as it does not have the required public link
-dependencies of Ceres, which are stored in the imported target
-definition.
+via: ``find_package(Foo REQUIRED)`` will contain: ``Ceres::ceres``.  However,
+the definition of ``Ceres::ceres`` as an imported target is **not
+(re)exported** when ``Foo`` is exported.  Hence, without any additional
+steps, when processing ``Bar``, ``Ceres::ceres`` will not be defined as an
+imported target.
 
 The solution to this is for ``Foo`` (i.e., the project that uses
-Ceres) to invoke ``find_package(Ceres)`` in ``FooConfig.cmake``, thus
-``ceres`` will be defined as an imported target when CMake processes
+Ceres) to invoke ``find_dependency(Ceres)`` in ``FooConfig.cmake``, thus
+``Ceres::ceres`` will be defined as an imported target when CMake processes
 ``Bar``.  An example of the required modifications to
-``FooConfig.cmake`` are show below:
+``FooConfig.cmake`` is shown below:
 
 .. code-block:: cmake
 
-    # Importing Ceres in FooConfig.cmake using CMake 3.x style.
+    # Importing Ceres in FooConfig.cmake.
     #
-    # In CMake v3.x, the find_dependency() macro exists to forward the REQUIRED
-    # / QUIET parameters to find_package() when searching for dependencies.
+    # The find_dependency() macro forwards the REQUIRED / QUIET parameters to
+    # find_package() when searching for dependencies.
     #
     # Note that find_dependency() does not take a path hint, so if Ceres was
     # installed in a non-standard location, that location must be added to
@@ -1060,23 +1108,64 @@ Migration
 
 The following includes some hints for migrating from previous versions.
 
+Version 2.3
+-----------
+
+- **Abseil replaces glog, gflags, and miniglog**: ``google-glog``, ``gflags``,
+  and ``MINIGLOG`` are no longer used by Ceres. Instead, Ceres requires
+  `Abseil <https://abseil.io/>`_ (version ``20240116`` or later) and uses
+  `GoogleTest <https://github.com/google/googletest>`_ (version ``1.14.0`` or
+  later) when ``BUILD_TESTING=ON``. If your system does not provide recent
+  enough versions of ``Abseil`` or ``GoogleTest``, clone Ceres with
+  ``git clone --recurse-submodules`` so that CMake automatically builds the
+  bundled submodules in ``third_party/``.
+- **CMake minimum version**: Building Ceres now requires CMake 3.22 or later.
+- **CMake feature options use the ``WITH_`` prefix**:
+  The Ceres-specific CMake options have been standardized to use the ``WITH_``
+  prefix:
+
+  - ``SUITESPARSE`` :math:`\rightarrow` ``WITH_SUITESPARSE``
+  - ``EIGENSPARSE`` :math:`\rightarrow` ``WITH_EIGENSPARSE``
+  - ``ACCELERATESPARSE`` :math:`\rightarrow` ``WITH_ACCELERATESPARSE``
+  - ``USE_CUDA`` :math:`\rightarrow` ``WITH_CUDA`` (accepts ``OFF``,
+    ``default``, or ``static``)
+  - ``LAPACK`` :math:`\rightarrow` ``WITH_LAPACK``
+  - ``CUSTOM_BLAS`` :math:`\rightarrow` ``WITH_CUSTOM_BLAS``
+  - ``EIGENMETIS`` :math:`\rightarrow` ``WITH_EIGENMETIS``
+  - ``SCHUR_SPECIALIZATIONS`` :math:`\rightarrow` ``WITH_SCHUR_SPECIALIZATIONS``
+  - ``IOS_BITCODE`` :math:`\rightarrow` ``WITH_BITCODE``
+  - ``ANDROID_STRIP_DEBUG_SYMBOLS`` :math:`\rightarrow`
+    ``WITH_STRIPPED_DEBUG_SYMBOLS``
+  - ``PROVIDE_UNINSTALL_TARGET`` :math:`\rightarrow` ``WITH_UNINSTALL_TARGET``
+
+- **SuiteSparse is now opt-in (``WITH_SUITESPARSE=OFF`` by default)**:
+  Because ``SuiteSparse``'s supernodal ``CHOLMOD`` and ``SPQR`` components are
+  licensed under the GPL, ``WITH_SUITESPARSE`` now defaults to ``OFF``. Pass
+  ``-DWITH_SUITESPARSE=ON`` to CMake to build Ceres with ``SuiteSparse``
+  support.
+- **Standard CMake variables replace custom Ceres variables**:
+
+  - ``EXPORT_BUILD_DIR`` has been removed; use the standard
+    ``CMAKE_EXPORT_PACKAGE_REGISTRY`` variable instead.
+  - ``LIB_SUFFIX`` has been removed; use the standard ``CMAKE_INSTALL_LIBDIR``
+    variable instead.
+  - ``MSVC_USE_STATIC_CRT`` has been removed; use the standard
+    ``CMAKE_MSVC_RUNTIME_LIBRARY`` variable instead.
+  - Custom ``<DEPENDENCY>_INCLUDE_DIR_HINTS`` and
+    ``<DEPENDENCY>_LIBRARY_DIR_HINTS`` variables have been removed; use
+    ``CMAKE_PREFIX_PATH``, ``<PackageName>_ROOT``, or ``<PackageName>_DIR``
+    instead.
+
 Version 2.0
 -----------
 
 - When using Ceres with CMake, the target name in v2.0 is
-  ``Ceres::ceres`` following modern naming convetions. The legacy
+  ``Ceres::ceres`` following modern naming conventions. The legacy
   target ``ceres`` exists for backwards compatibility, but is
   deprecated. ``CERES_INCLUDE_DIRS`` is not set any more, as the
   exported Ceres CMake target already contains the definitions of its
   public include directories which will be automatically included by
   CMake when compiling a target that links against Ceres.
-- When building Ceres, some dependencies (Eigen, gflags) are not found
-  using custom ``Find<DEPENDENCY_NAME>.cmake`` modules any
-  more. Hence, instead of the custom variables (``<DEPENDENCY_NAME (CAPS)>_INCLUDE_DIR_HINTS``,
-  ``<DEPENDENCY_NAME (CAPS)>_INCLUDE_DIR``, ...) you should use standard
-  CMake facilities to customize where these dependencies are found, such as
-  ``CMAKE_PREFIX_PATH``, the ``<DEPENDENCY_NAME>_DIR`` variables, or
-  since CMake 3.12 the ``<DEPENDENCY_NAME>_ROOT`` variables.
 - While TBB is not used any more directly by Ceres, it might still try
   to link against it, if SuiteSparseQR was found. The variable (environment
   or CMake) to customize this is ``TBB_ROOT`` (used to be ``TBBROOT``).

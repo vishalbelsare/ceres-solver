@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -39,10 +39,10 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/str_format.h"
 #include "ceres/cost_function.h"
 #include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/export.h"
-#include "ceres/stringprintf.h"
 #include "ceres/types.h"
 
 namespace ceres {
@@ -131,7 +131,7 @@ class CERES_NO_EXPORT ResidualBlock {
   void set_index(int index) { index_ = index; }
 
   std::string ToString() const {
-    return StringPrintf("{residual block; index=%d}", index_);
+    return absl::StrFormat("{residual block; index=%d}", index_);
   }
 
  private:

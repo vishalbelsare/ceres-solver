@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2019 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -39,6 +39,7 @@
 
 #include "ceres/cost_function.h"
 #include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 #include "ceres/types.h"
 
 namespace ceres {
@@ -64,9 +65,9 @@ namespace ceres {
 //   CostFunction* f_N = ...
 //   conditioners.push_back(f_N);
 //   ConditionedCostFunction* ccf =
-//     new ConditionedCostFunction(my_cost_function, conditioners);
+//     new ConditionedCostFunction(my_cost_function, conditioners, TAKE_OWNERSHIP);
 //
-// Now ccf's residual i (i=0..N-1) will be passed though the i'th conditioner.
+// Now ccf's residual i (i=0..N-1) will be passed through the i'th conditioner.
 //
 //   ccf_residual[i] = f_i(my_cost_function_residual[i])
 //

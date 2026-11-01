@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -40,25 +40,22 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "ceres/dynamic_numeric_diff_cost_function.h"
+#include "ceres/eigen.h"
 #include "ceres/gradient_checker.h"
-#include "ceres/internal/eigen.h"
+#include "ceres/numeric_diff_options.h"
 #include "ceres/parameter_block.h"
 #include "ceres/problem.h"
 #include "ceres/problem_impl.h"
 #include "ceres/program.h"
 #include "ceres/residual_block.h"
-#include "ceres/stringprintf.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
-
-using std::abs;
-using std::max;
-using std::string;
-using std::vector;
+namespace ceres::internal {
 
 namespace {
 
@@ -68,7 +65,7 @@ class GradientCheckingCostFunction final : public CostFunction {
                                const std::vector<const Manifold*>* manifolds,
                                const NumericDiffOptions& options,
                                double relative_precision,
-                               string extra_info,
+                               std::string extra_info,
                                GradientCheckingIterationCallback* callback)
       : function_(function),
         gradient_checker_(function, manifolds, options),
@@ -76,7 +73,7 @@ class GradientCheckingCostFunction final : public CostFunction {
         extra_info_(std::move(extra_info)),
         callback_(callback) {
     CHECK(callback_ != nullptr);
-    const vector<int32_t>& parameter_block_sizes =
+    const std::vector<int32_t>& parameter_block_sizes =
         function->parameter_block_sizes();
     *mutable_parameter_block_sizes() = parameter_block_sizes;
     set_num_residuals(function->num_residuals());
@@ -105,7 +102,8 @@ class GradientCheckingCostFunction final : public CostFunction {
     MatrixRef(residuals, num_residuals, 1) = results.residuals;
 
     // Copy the original jacobian blocks into the jacobians array.
-    const vector<int32_t>& block_sizes = function_->parameter_block_sizes();
+    const std::vector<int32_t>& block_sizes =
+        function_->parameter_block_sizes();
     for (int k = 0; k < block_sizes.size(); k++) {
       if (jacobians[k] != nullptr) {
         MatrixRef(jacobians[k],
@@ -115,9 +113,11 @@ class GradientCheckingCostFunction final : public CostFunction {
     }
 
     if (!okay) {
-      std::string error_log =
-          "Gradient Error detected!\nExtra info for this residual: " +
-          extra_info_ + "\n" + results.error_log;
+      std::string error_log = absl::StrCat(
+          "Gradient Error detected!\nExtra info for this residual: ",
+          extra_info_,
+          "\n",
+          results.error_log);
       callback_->SetGradientErrorDetected(error_log);
     }
     return true;
@@ -127,7 +127,7 @@ class GradientCheckingCostFunction final : public CostFunction {
   const CostFunction* function_;
   GradientChecker gradient_checker_;
   double relative_precision_;
-  string extra_info_;
+  std::string extra_info_;
   GradientCheckingIterationCallback* callback_;
 };
 
@@ -137,7 +137,7 @@ GradientCheckingIterationCallback::GradientCheckingIterationCallback()
     : gradient_error_detected_(false) {}
 
 CallbackReturnType GradientCheckingIterationCallback::operator()(
-    const IterationSummary& summary) {
+    const IterationSummary& /*summary*/) {
   if (gradient_error_detected_) {
     LOG(ERROR) << "Gradient error detected. Terminating solver.";
     return SOLVER_ABORT;
@@ -149,7 +149,7 @@ void GradientCheckingIterationCallback::SetGradientErrorDetected(
     std::string& error_log) {
   std::lock_guard<std::mutex> l(mutex_);
   gradient_error_detected_ = true;
-  error_log_ += "\n" + error_log;
+  absl::StrAppend(&error_log_, "\n", error_log);
 }
 
 std::unique_ptr<CostFunction> CreateGradientCheckingCostFunction(
@@ -198,7 +198,8 @@ std::unique_ptr<ProblemImpl> CreateGradientCheckingProblemImpl(
 
   // For every ParameterBlock in problem_impl, create a new parameter block with
   // the same manifold and constancy.
-  const vector<ParameterBlock*>& parameter_blocks = program->parameter_blocks();
+  const std::vector<ParameterBlock*>& parameter_blocks =
+      program->parameter_blocks();
   for (auto* parameter_block : parameter_blocks) {
     gradient_checking_problem_impl->AddParameterBlock(
         parameter_block->mutable_user_state(),
@@ -225,24 +226,28 @@ std::unique_ptr<ProblemImpl> CreateGradientCheckingProblemImpl(
   // For every ResidualBlock in problem_impl, create a new
   // ResidualBlock by wrapping its CostFunction inside a
   // GradientCheckingCostFunction.
-  const vector<ResidualBlock*>& residual_blocks = program->residual_blocks();
+  const std::vector<ResidualBlock*>& residual_blocks =
+      program->residual_blocks();
   for (int i = 0; i < residual_blocks.size(); ++i) {
     ResidualBlock* residual_block = residual_blocks[i];
 
     // Build a human readable string which identifies the
     // ResidualBlock. This is used by the GradientCheckingCostFunction
     // when logging debugging information.
-    string extra_info =
-        StringPrintf("Residual block id %d; depends on parameters [", i);
-    vector<double*> parameter_blocks;
-    vector<const Manifold*> manifolds;
+    std::string extra_info =
+        absl::StrFormat("Residual block id %d; depends on parameters [", i);
+    std::vector<double*> parameter_blocks;
+    std::vector<const Manifold*> manifolds;
     parameter_blocks.reserve(residual_block->NumParameterBlocks());
     manifolds.reserve(residual_block->NumParameterBlocks());
     for (int j = 0; j < residual_block->NumParameterBlocks(); ++j) {
       ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
       parameter_blocks.push_back(parameter_block->mutable_user_state());
-      StringAppendF(&extra_info, "%p", parameter_block->mutable_user_state());
-      extra_info += (j < residual_block->NumParameterBlocks() - 1) ? ", " : "]";
+      absl::StrAppendFormat(
+          &extra_info, "%p", parameter_block->mutable_user_state());
+      absl::StrAppend(
+          &extra_info,
+          (j < residual_block->NumParameterBlocks() - 1) ? ", " : "]");
       manifolds.push_back(
           problem_impl->GetManifold(parameter_block->mutable_user_state()));
     }
@@ -280,5 +285,4 @@ std::unique_ptr<ProblemImpl> CreateGradientCheckingProblemImpl(
   return gradient_checking_problem_impl;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

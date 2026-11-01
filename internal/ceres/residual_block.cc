@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,10 +35,12 @@
 #include <cstddef>
 #include <vector>
 
+#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "ceres/corrector.h"
 #include "ceres/cost_function.h"
-#include "ceres/internal/eigen.h"
-#include "ceres/internal/fixed_array.h"
+#include "ceres/eigen.h"
 #include "ceres/loss_function.h"
 #include "ceres/manifold.h"
 #include "ceres/parameter_block.h"
@@ -47,8 +49,7 @@
 
 using Eigen::Dynamic;
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 ResidualBlock::ResidualBlock(
     const CostFunction* cost_function,
@@ -76,13 +77,13 @@ bool ResidualBlock::Evaluate(const bool apply_loss_function,
 
   // Collect the parameters from their blocks. This will rarely allocate, since
   // residuals taking more than 8 parameter block arguments are rare.
-  FixedArray<const double*, 8> parameters(num_parameter_blocks);
+  absl::FixedArray<const double*> parameters(num_parameter_blocks);
   for (int i = 0; i < num_parameter_blocks; ++i) {
     parameters[i] = parameter_blocks_[i]->state();
   }
 
   // Put pointers into the scratch space into global_jacobians as appropriate.
-  FixedArray<double*, 8> global_jacobians(num_parameter_blocks);
+  absl::FixedArray<double*> global_jacobians(num_parameter_blocks);
   if (jacobians != nullptr) {
     for (int i = 0; i < num_parameter_blocks; ++i) {
       const ParameterBlock* parameter_block = parameter_blocks_[i];
@@ -114,19 +115,18 @@ bool ResidualBlock::Evaluate(const bool apply_loss_function,
     return false;
   }
 
-  if (!IsEvaluationValid(
-          *this, parameters.data(), cost, residuals, eval_jacobians)) {
-    // clang-format off
-    std::string message =
-        "\n\n"
-        "Error in evaluating the ResidualBlock.\n\n"
-        "There are two possible reasons. Either the CostFunction did not evaluate and fill all    \n"  // NOLINT
-        "residual and jacobians that were requested or there was a non-finite value (nan/infinite)\n"  // NOLINT
-        "generated during the or jacobian computation. \n\n" +
-        EvaluationToString(
-            *this, parameters.data(), cost, residuals, eval_jacobians);
-    // clang-format on
-    LOG(WARNING) << message;
+  if (!IsEvaluationValid(*this, parameters.data(), residuals, eval_jacobians)) {
+    LOG(WARNING)
+        << "\n\n"
+           "Error in evaluating the ResidualBlock.\n\n"
+           "There are two possible reasons. Either the CostFunction did not "
+           "evaluate and fill all    \n"  // NOLINT
+           "residual and jacobians that were requested or there was a "
+           "non-finite "
+           "value (nan/infinite)\n"  // NOLINT
+           "generated during the jacobian computation. \n\n"
+        << EvaluationToString(
+               *this, parameters.data(), cost, residuals, eval_jacobians);
     return false;
   }
 
@@ -216,5 +216,4 @@ int ResidualBlock::NumScratchDoublesForEvaluate() const {
   return scratch_doubles;
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

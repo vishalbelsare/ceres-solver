@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,15 +32,18 @@
 
 #include <algorithm>
 #include <memory>
+#include <random>
 
-#include "ceres/internal/eigen.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_format.h"
+#include "ceres/compressed_row_sparse_matrix.h"
+#include "ceres/crs_matrix.h"
+#include "ceres/eigen.h"
 #include "ceres/internal/export.h"
-#include "ceres/random.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 TripletSparseMatrix::TripletSparseMatrix()
     : num_rows_(0), num_cols_(0), max_num_nonzeros_(0), num_nonzeros_(0) {}
@@ -168,13 +171,15 @@ void TripletSparseMatrix::CopyData(const TripletSparseMatrix& orig) {
   }
 }
 
-void TripletSparseMatrix::RightMultiply(const double* x, double* y) const {
+void TripletSparseMatrix::RightMultiplyAndAccumulate(const double* x,
+                                                     double* y) const {
   for (int i = 0; i < num_nonzeros_; ++i) {
     y[rows_[i]] += values_[i] * x[cols_[i]];
   }
 }
 
-void TripletSparseMatrix::LeftMultiply(const double* x, double* y) const {
+void TripletSparseMatrix::LeftMultiplyAndAccumulate(const double* x,
+                                                    double* y) const {
   for (int i = 0; i < num_nonzeros_; ++i) {
     y[cols_[i]] += values_[i] * x[rows_[i]];
   }
@@ -193,6 +198,11 @@ void TripletSparseMatrix::ScaleColumns(const double* scale) {
   for (int i = 0; i < num_nonzeros_; ++i) {
     values_[i] = values_[i] * scale[cols_[i]];
   }
+}
+
+void TripletSparseMatrix::ToCRSMatrix(CRSMatrix* crs_matrix) const {
+  CompressedRowSparseMatrix::FromTripletSparseMatrix(*this)->ToCRSMatrix(
+      crs_matrix);
 }
 
 void TripletSparseMatrix::ToDenseMatrix(Matrix* dense_matrix) const {
@@ -272,12 +282,38 @@ TripletSparseMatrix::CreateSparseDiagonalMatrix(const double* values,
 void TripletSparseMatrix::ToTextFile(FILE* file) const {
   CHECK(file != nullptr);
   for (int i = 0; i < num_nonzeros_; ++i) {
-    fprintf(file, "% 10d % 10d %17f\n", rows_[i], cols_[i], values_[i]);
+    absl::FPrintF(file, "% 10d % 10d %17f\n", rows_[i], cols_[i], values_[i]);
   }
 }
 
+std::unique_ptr<TripletSparseMatrix> TripletSparseMatrix::CreateFromTextFile(
+    FILE* file) {
+  CHECK(file != nullptr);
+  int num_rows = 0;
+  int num_cols = 0;
+  std::vector<int> rows;
+  std::vector<int> cols;
+  std::vector<double> values;
+  while (true) {
+    int row, col;
+    double value;
+    if (fscanf(file, "%d %d %lf", &row, &col, &value) != 3) {
+      break;
+    }
+    rows.push_back(row);
+    cols.push_back(col);
+    values.push_back(value);
+    num_rows = std::max(num_rows, row + 1);
+    num_cols = std::max(num_cols, col + 1);
+  }
+  VLOG(1) << "Read " << rows.size() << " nonzeros from file.";
+  return std::make_unique<TripletSparseMatrix>(
+      num_rows, num_cols, rows, cols, values);
+}
+
 std::unique_ptr<TripletSparseMatrix> TripletSparseMatrix::CreateRandomMatrix(
-    const TripletSparseMatrix::RandomMatrixOptions& options) {
+    const TripletSparseMatrix::RandomMatrixOptions& options,
+    std::mt19937& prng) {
   CHECK_GT(options.num_rows, 0);
   CHECK_GT(options.num_cols, 0);
   CHECK_GT(options.density, 0.0);
@@ -286,16 +322,18 @@ std::unique_ptr<TripletSparseMatrix> TripletSparseMatrix::CreateRandomMatrix(
   std::vector<int> rows;
   std::vector<int> cols;
   std::vector<double> values;
+  std::uniform_real_distribution<double> uniform01(0.0, 1.0);
+  std::normal_distribution<double> standard_normal;
   while (rows.empty()) {
     rows.clear();
     cols.clear();
     values.clear();
     for (int r = 0; r < options.num_rows; ++r) {
       for (int c = 0; c < options.num_cols; ++c) {
-        if (RandDouble() <= options.density) {
+        if (uniform01(prng) <= options.density) {
           rows.push_back(r);
           cols.push_back(c);
-          values.push_back(RandNormal());
+          values.push_back(standard_normal(prng));
         }
       }
     }
@@ -305,5 +343,4 @@ std::unique_ptr<TripletSparseMatrix> TripletSparseMatrix::CreateRandomMatrix(
       options.num_rows, options.num_cols, rows, cols, values);
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

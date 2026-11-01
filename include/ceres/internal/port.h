@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2024 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,6 +31,10 @@
 #ifndef CERES_PUBLIC_INTERNAL_PORT_H_
 #define CERES_PUBLIC_INTERNAL_PORT_H_
 
+// IWYU pragma: private
+
+#include <cmath>  // Necessary for __cpp_lib_math_special_functions feature test
+
 // A macro to mark a function/variable/class as deprecated.
 // We use compiler specific attributes rather than the c++
 // attribute because they do not mix well with each other.
@@ -42,18 +46,6 @@
 // In the worst case fall back to c++ attribute.
 #define CERES_DEPRECATED_WITH_MSG(message) [[deprecated(message)]]
 #endif
-
-#ifndef CERES_GET_FLAG
-#define CERES_GET_FLAG(X) X
-#endif
-
-// Indicates whether C++17 is currently active
-#ifndef CERES_HAS_CPP17
-#if __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
-#define CERES_HAS_CPP17
-#endif  // __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >=
-        // 201703L)
-#endif  // !defined(CERES_HAS_CPP17)
 
 // Indicates whether C++20 is currently active
 #ifndef CERES_HAS_CPP20
@@ -84,5 +76,41 @@
 // general case, because it will prevent argument-dependent lookup (ADL).
 //
 #define CERES_PREVENT_MACRO_SUBSTITUTION  // Yes, it's empty
+
+// CERES_DISABLE_DEPRECATED_WARNING and CERES_RESTORE_DEPRECATED_WARNING allow
+// to temporarily disable deprecation warnings
+#if defined(_MSC_VER)
+#define CERES_DISABLE_DEPRECATED_WARNING \
+  _Pragma("warning(push)") _Pragma("warning(disable : 4996)")
+#define CERES_RESTORE_DEPRECATED_WARNING _Pragma("warning(pop)")
+#else  // defined(_MSC_VER)
+#define CERES_DISABLE_DEPRECATED_WARNING
+#define CERES_RESTORE_DEPRECATED_WARNING
+#endif  // defined(_MSC_VER)
+
+#if defined(__cpp_lib_math_special_functions) &&      \
+    ((__cpp_lib_math_special_functions >= 201603L) || \
+     defined(__STDCPP_MATH_SPEC_FUNCS__) &&           \
+         (__STDCPP_MATH_SPEC_FUNCS__ >= 201003L))
+// If defined, indicates whether C++17 Bessel functions (of the first kind) are
+// available. Some standard library implementations, such as libc++ (Android
+// NDK, Apple, Clang) do not yet provide these functions. Implementations that
+// do not support C++17, but support ISO 29124:2010, provide the functions if
+// __STDCPP_MATH_SPEC_FUNCS__ is defined by the implementation to a value at
+// least 201003L and if the user defines __STDCPP_WANT_MATH_SPEC_FUNCS__ before
+// including any standard library headers. Standard library Bessel functions are
+// preferred over any other implementation.
+#define CERES_HAS_CPP17_BESSEL_FUNCTIONS
+#elif defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || \
+    defined(_DEFAULT_SOURCE) || defined(_XOPEN_SOURCE) || \
+    (defined(__DARWIN_C_LEVEL) && __DARWIN_C_LEVEL >= 199506L)
+// If defined, indicates that j0, j1, and jn from <math.h> are available.
+// On glibc, these POSIX XSI extensions are exposed when _SVID_SOURCE,
+// _BSD_SOURCE, _DEFAULT_SOURCE, or _XOPEN_SOURCE is defined. On Apple
+// platforms (macOS, iOS), <math.h> does not use glibc feature-test macros
+// and instead exposes j0, j1, and jn whenever __DARWIN_C_LEVEL >= 199506L
+// (which holds by default under __DARWIN_C_FULL).
+#define CERES_HAS_POSIX_BESSEL_FUNCTIONS
+#endif
 
 #endif  // CERES_PUBLIC_INTERNAL_PORT_H_

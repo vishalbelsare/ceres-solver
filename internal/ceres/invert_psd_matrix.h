@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,12 +31,12 @@
 #ifndef CERES_INTERNAL_INVERT_PSD_MATRIX_H_
 #define CERES_INTERNAL_INVERT_PSD_MATRIX_H_
 
+#include "Eigen/Core"
 #include "Eigen/Dense"
-#include "ceres/internal/eigen.h"
-#include "glog/logging.h"
+#include "Eigen/SVD"
+#include "ceres/eigen.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // Helper routine to compute the inverse or pseudo-inverse of a
 // symmetric positive semi-definite matrix.
@@ -60,20 +60,24 @@ typename EigenTypes<kSize, kSize>::Matrix InvertPSDMatrix(
   //
   // https://eigen.tuxfamily.org/dox/group__TutorialLinearAlgebra.html#title3
   if (assume_full_rank) {
-    if (kSize > 0 && kSize < 5) {
+    if constexpr (kSize > 0 && kSize < 5) {
       return m.inverse();
+    } else {
+      return m.template selfadjointView<Eigen::Upper>().llt().solve(
+          MType::Identity(size, size));
     }
-    return m.template selfadjointView<Eigen::Upper>().llt().solve(
-        MType::Identity(size, size));
   }
 
   // For a thin SVD the number of columns of the matrix need to be dynamic.
   using SVDMType = typename EigenTypes<kSize, Eigen::Dynamic>::Matrix;
+#if EIGEN_VERSION_AT_LEAST(5, 0, 0)
+  Eigen::JacobiSVD<SVDMType, Eigen::ComputeThinU | Eigen::ComputeThinV> svd(m);
+#else   // !EIGEN_VERSION_AT_LEAST(5, 0, 0)
   Eigen::JacobiSVD<SVDMType> svd(m, Eigen::ComputeThinU | Eigen::ComputeThinV);
+#endif  // EIGEN_VERSION_AT_LEAST(5, 0, 0)
   return svd.solve(MType::Identity(size, size));
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal
 
 #endif  // CERES_INTERNAL_INVERT_PSD_MATRIX_H_

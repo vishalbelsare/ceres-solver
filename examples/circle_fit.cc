@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -50,25 +50,20 @@
 //
 //   [1] http://www.mathworks.com/matlabcentral/fileexchange/5557-circle-fit/content/circfit.m  // NOLINT
 
+#include <cmath>
 #include <cstdio>
-#include <vector>
+#include <iostream>
 
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/log/initialize.h"
 #include "ceres/ceres.h"
-#include "gflags/gflags.h"
-#include "glog/logging.h"
 
-using ceres::AutoDiffCostFunction;
-using ceres::CauchyLoss;
-using ceres::CostFunction;
-using ceres::LossFunction;
-using ceres::Problem;
-using ceres::Solve;
-using ceres::Solver;
-
-DEFINE_double(robust_threshold,
-              0.0,
-              "Robust loss parameter. Set to 0 for normal squared error (no "
-              "robustification).");
+ABSL_FLAG(double,
+          robust_threshold,
+          0.0,
+          "Robust loss parameter. Set to 0 for normal squared error (no "
+          "robustification).");
 
 // The cost for a single sample. The returned residual is related to the
 // distance of the point from the circle (passed in as x, y, m parameters).
@@ -110,8 +105,8 @@ class DistanceFromCircleCost {
 };
 
 int main(int argc, char** argv) {
-  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  absl::InitializeLog();
+  absl::ParseCommandLine(argc, argv);
 
   double x, y, r;
   if (scanf("%lg %lg %lg", &x, &y, &r) != 3) {
@@ -126,23 +121,23 @@ int main(int argc, char** argv) {
   double initial_r = r;
 
   // Parameterize r as m^2 so that it can't be negative.
-  double m = sqrt(r);
+  double m = std::sqrt(r);
 
-  Problem problem;
+  ceres::Problem problem;
 
   // Configure the loss function.
-  LossFunction* loss = nullptr;
-  if (CERES_GET_FLAG(FLAGS_robust_threshold)) {
-    loss = new CauchyLoss(CERES_GET_FLAG(FLAGS_robust_threshold));
+  ceres::LossFunction* loss = nullptr;
+  if (absl::GetFlag(FLAGS_robust_threshold)) {
+    loss = new ceres::CauchyLoss(absl::GetFlag(FLAGS_robust_threshold));
   }
 
   // Add the residuals.
   double xx, yy;
   int num_points = 0;
   while (scanf("%lf %lf\n", &xx, &yy) == 2) {
-    CostFunction* cost =
-        new AutoDiffCostFunction<DistanceFromCircleCost, 1, 1, 1, 1>(
-            new DistanceFromCircleCost(xx, yy));
+    ceres::CostFunction* cost =
+        new ceres::AutoDiffCostFunction<DistanceFromCircleCost, 1, 1, 1, 1>(xx,
+                                                                            yy);
     problem.AddResidualBlock(cost, loss, &x, &y, &m);
     num_points++;
   }
@@ -150,11 +145,11 @@ int main(int argc, char** argv) {
   std::cout << "Got " << num_points << " points.\n";
 
   // Build and solve the problem.
-  Solver::Options options;
+  ceres::Solver::Options options;
   options.max_num_iterations = 500;
   options.linear_solver_type = ceres::DENSE_QR;
-  Solver::Summary summary;
-  Solve(options, &problem, &summary);
+  ceres::Solver::Summary summary;
+  ceres::Solve(options, &problem, &summary);
 
   // Recover r from m.
   r = m * m;

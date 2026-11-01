@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,7 @@
 #include <memory>
 
 #include "ceres/internal/autodiff.h"
+#include "ceres/internal/parameter_dims.h"
 #include "ceres/manifold.h"
 
 namespace ceres {
@@ -47,8 +48,8 @@ namespace ceres {
 //   x_plus_delta = Plus(x, delta);
 //   y_minus_x    = Minus(y, x);
 //
-// Where, x, y and x_plus_y are vectors on the manifold in the ambient space (so
-// they are kAmbientSize vectors) and delta, y_minus_x are vectors in the
+// Where, x, y and x_plus_delta are vectors on the manifold in the ambient space
+// (so they are kAmbientSize vectors) and delta, y_minus_x are vectors in the
 // tangent space (so they are kTangentSize vectors).
 //
 // The Functor should have the signature:
@@ -206,15 +207,8 @@ struct MinusWrapper {
 template <typename Functor, int kAmbientSize, int kTangentSize>
 bool AutoDiffManifold<Functor, kAmbientSize, kTangentSize>::PlusJacobian(
     const double* x, double* jacobian) const {
-  double zero_delta[kTangentSize];
-  for (int i = 0; i < kTangentSize; ++i) {
-    zero_delta[i] = 0.0;
-  }
-
-  double x_plus_delta[kAmbientSize];
-  for (int i = 0; i < kAmbientSize; ++i) {
-    x_plus_delta[i] = 0.0;
-  }
+  double zero_delta[kTangentSize] = {};
+  double x_plus_delta[kAmbientSize] = {};
 
   const double* parameter_ptrs[2] = {x, zero_delta};
 
@@ -234,10 +228,7 @@ bool AutoDiffManifold<Functor, kAmbientSize, kTangentSize>::PlusJacobian(
 template <typename Functor, int kAmbientSize, int kTangentSize>
 bool AutoDiffManifold<Functor, kAmbientSize, kTangentSize>::MinusJacobian(
     const double* x, double* jacobian) const {
-  double y_minus_x[kTangentSize];
-  for (int i = 0; i < kTangentSize; ++i) {
-    y_minus_x[i] = 0.0;
-  }
+  double y_minus_x[kTangentSize] = {};
 
   const double* parameter_ptrs[2] = {x, x};
 

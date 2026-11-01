@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2022 Google Inc. All rights reserved.
+// Copyright 2026 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,14 +31,16 @@
 #include "ceres/autodiff_manifold.h"
 
 #include <cmath>
+#include <limits>
 
-#include "ceres/manifold.h"
+#include "ceres/constants.h"
+#include "ceres/eigen.h"
 #include "ceres/manifold_test_utils.h"
 #include "ceres/rotation.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 namespace {
 
@@ -140,12 +142,10 @@ TEST(AutoDiffManifoldTest, ScaledManifold) {
 struct QuaternionFunctor {
   template <typename T>
   bool Plus(const T* x, const T* delta, T* x_plus_delta) const {
-    const T squared_norm_delta =
-        delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2];
-
     T q_delta[4];
-    if (squared_norm_delta > T(0.0)) {
-      T norm_delta = sqrt(squared_norm_delta);
+    if (fpclassify(delta[0]) != FP_ZERO || fpclassify(delta[1]) != FP_ZERO ||
+        fpclassify(delta[2]) != FP_ZERO) {
+      T norm_delta = hypot(delta[0], delta[1], delta[2]);
       const T sin_delta_by_delta = sin(norm_delta) / norm_delta;
       q_delta[0] = cos(norm_delta);
       q_delta[1] = sin_delta_by_delta * delta[0];
@@ -171,10 +171,11 @@ struct QuaternionFunctor {
     T minus_x[4] = {x[0], -x[1], -x[2], -x[3]};
     T ambient_y_minus_x[4];
     QuaternionProduct(y, minus_x, ambient_y_minus_x);
-    T u_norm = sqrt(ambient_y_minus_x[1] * ambient_y_minus_x[1] +
-                    ambient_y_minus_x[2] * ambient_y_minus_x[2] +
-                    ambient_y_minus_x[3] * ambient_y_minus_x[3]);
-    if (u_norm > 0.0) {
+    if (fpclassify(ambient_y_minus_x[1]) != FP_ZERO ||
+        fpclassify(ambient_y_minus_x[2]) != FP_ZERO ||
+        fpclassify(ambient_y_minus_x[3]) != FP_ZERO) {
+      T u_norm = hypot(
+          ambient_y_minus_x[1], ambient_y_minus_x[2], ambient_y_minus_x[3]);
       T theta = atan2(u_norm, ambient_y_minus_x[0]);
       y_minus_x[0] = theta * ambient_y_minus_x[1] / u_norm;
       y_minus_x[1] = theta * ambient_y_minus_x[2] / u_norm;
@@ -198,7 +199,7 @@ TEST(AutoDiffManifoldTest, QuaternionPlusPiBy2) {
 
   for (int i = 0; i < 3; ++i) {
     Vector delta = Vector::Zero(3);
-    delta[i] = M_PI / 2;
+    delta[i] = constants::pi / 2;
     Vector x_plus_delta = Vector::Zero(4);
     EXPECT_TRUE(manifold.Plus(x.data(), delta.data(), x_plus_delta.data()));
 
@@ -286,11 +287,10 @@ TEST(AutoDiffManifold, QuaternionDeltaJustBelowPi) {
     const Vector y = RandomQuaternion();
     Vector delta = Vector::Random(3);
     delta.normalize();
-    delta *= (M_PI - 1e-6);
+    delta *= (constants::pi - 1e-6);
     EXPECT_THAT(manifold, QuaternionPlusIsCorrectAt(x, delta));
     EXPECT_THAT_MANIFOLD_INVARIANTS_HOLD(manifold, x, delta, y, kTolerance);
   }
 }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

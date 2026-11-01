@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2023 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -37,18 +37,15 @@
 #include "ceres/block_random_access_sparse_matrix.h"
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/casts.h"
+#include "ceres/eigen.h"
 #include "ceres/file.h"
-#include "ceres/internal/eigen.h"
 #include "ceres/linear_least_squares_problems.h"
 #include "ceres/schur_eliminator.h"
-#include "ceres/stringprintf.h"
 #include "ceres/test_util.h"
 #include "ceres/types.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres {
-namespace internal {
+namespace ceres::internal {
 
 // TODO(sameeragarwal): Re-enable this test once serialization is
 // working again.
@@ -74,7 +71,7 @@ namespace internal {
 //     D_.reset(problem->D.release());
 
 //     const CompressedRowBlockStructure* bs =
-//         CHECK_NOTNULL(A_->block_structure());
+//         ASSERT_TRUE(A_->block_structure()!=nullptr);
 //     const int num_col_blocks = bs->cols.size();
 
 //     num_cols_ = A_->num_cols();
@@ -113,7 +110,7 @@ namespace internal {
 
 //   AssertionResult IsSparsityStructureValid() {
 //     preconditioner_->InitStorage(*A_->block_structure());
-//     const std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
+//     const absl::flat_hash_set<pair<int, int>>& cluster_pairs =
 //     get_cluster_pairs(); const vector<int>& cluster_membership =
 //     get_cluster_membership();
 
@@ -138,7 +135,7 @@ namespace internal {
 
 //   AssertionResult PreconditionerValuesMatch() {
 //     preconditioner_->Update(*A_, D_.get());
-//     const std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
+//     const absl::flat_hash_set<pair<int, int>>& cluster_pairs =
 //     get_cluster_pairs(); const BlockRandomAccessSparseMatrix* m = get_m();
 //     Matrix preconditioner_matrix;
 //     m->matrix()->ToDenseMatrix(&preconditioner_matrix);
@@ -206,11 +203,11 @@ namespace internal {
 //     return &preconditioner_->block_pairs_;
 //   }
 
-//   const std::unordered_set<pair<int, int>, pair_hash>& get_cluster_pairs() {
+//   const absl::flat_hash_set<pair<int, int>>& get_cluster_pairs() {
 //     return preconditioner_->cluster_pairs_;
 //   }
 
-//   std::unordered_set<pair<int, int>, pair_hash>* get_mutable_cluster_pairs()
+//   absl::flat_hash_set<pair<int, int>>* get_mutable_cluster_pairs()
 //   {
 //     return &preconditioner_->cluster_pairs_;
 //   }
@@ -256,7 +253,7 @@ namespace internal {
 
 //   *get_mutable_num_clusters() = 1;
 
-//   std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
+//   absl::flat_hash_set<pair<int, int>>& cluster_pairs =
 //   *get_mutable_cluster_pairs(); cluster_pairs.clear();
 //   cluster_pairs.insert(make_pair(0, 0));
 
@@ -277,7 +274,7 @@ namespace internal {
 //     y.setZero();
 //     z.setZero();
 //     x[i] = 1.0;
-//     preconditioner_->RightMultiply(x.data(), y.data());
+//     preconditioner_->RightMultiplyAndAccumulate(x.data(), y.data());
 //     z = full_schur_complement
 //         .selfadjointView<Eigen::Upper>()
 //         .llt().solve(x);
@@ -303,7 +300,7 @@ namespace internal {
 //   }
 //   *get_mutable_num_clusters() = kNumClusters;
 
-//   std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
+//   absl::flat_hash_set<pair<int, int>>& cluster_pairs =
 //   *get_mutable_cluster_pairs(); cluster_pairs.clear(); for (int i = 0; i <
 //   kNumClusters; ++i) {
 //     cluster_pairs.insert(make_pair(i, i));
@@ -329,7 +326,7 @@ namespace internal {
 //   *get_mutable_num_clusters() = kNumClusters;
 
 //   // Spanning forest has structure 0-1 2
-//   std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
+//   absl::flat_hash_set<pair<int, int>>& cluster_pairs =
 //   *get_mutable_cluster_pairs(); cluster_pairs.clear(); for (int i = 0; i <
 //   kNumClusters; ++i) {
 //     cluster_pairs.insert(make_pair(i, i));
@@ -340,5 +337,4 @@ namespace internal {
 //   EXPECT_TRUE(PreconditionerValuesMatch());
 // }
 
-}  // namespace internal
-}  // namespace ceres
+}  // namespace ceres::internal

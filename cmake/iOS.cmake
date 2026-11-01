@@ -82,7 +82,7 @@ execute_process(COMMAND xcodebuild -version
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 string(REGEX MATCH "Xcode [0-9\\.]+" XCODE_VERSION "${XCODE_VERSION}")
 string(REGEX REPLACE "Xcode ([0-9\\.]+)" "\\1" XCODE_VERSION "${XCODE_VERSION}")
-message(STATUS "Building with Xcode version: ${XCODE_VERSION}")
+message(VERBOSE "Building with Xcode version: ${XCODE_VERSION}")
 
 # Default to building for iPhoneOS if not specified otherwise, and we cannot
 # determine the platform from the CMAKE_OSX_ARCHITECTURES variable.  The use
@@ -127,7 +127,7 @@ if (NOT CMAKE_OSX_SYSROOT)
     OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
     ERROR_QUIET
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-  message(STATUS "Using SDK: ${CMAKE_OSX_SYSROOT} for platform: ${IOS_PLATFORM}")
+  message(VERBOSE "Using SDK: ${CMAKE_OSX_SYSROOT} for platform: ${IOS_PLATFORM}")
 endif()
 if (NOT EXISTS ${CMAKE_OSX_SYSROOT})
   message(FATAL_ERROR "Invalid CMAKE_OSX_SYSROOT: ${CMAKE_OSX_SYSROOT} "
@@ -158,14 +158,14 @@ if (NOT CMAKE_C_COMPILER)
     OUTPUT_VARIABLE CMAKE_C_COMPILER
     ERROR_QUIET
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-  message(STATUS "Using C compiler: ${CMAKE_C_COMPILER}")
+  message(VERBOSE "Using C compiler: ${CMAKE_C_COMPILER}")
 endif()
 if (NOT CMAKE_CXX_COMPILER)
   execute_process(COMMAND xcrun -sdk ${CMAKE_OSX_SYSROOT} -find clang++
     OUTPUT_VARIABLE CMAKE_CXX_COMPILER
     ERROR_QUIET
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-  message(STATUS "Using CXX compiler: ${CMAKE_CXX_COMPILER}")
+  message(VERBOSE "Using CXX compiler: ${CMAKE_CXX_COMPILER}")
 endif()
 
 # Find (Apple's) libtool.
@@ -173,7 +173,7 @@ execute_process(COMMAND xcrun -sdk ${CMAKE_OSX_SYSROOT} -find libtool
   OUTPUT_VARIABLE IOS_LIBTOOL
   ERROR_QUIET
   OUTPUT_STRIP_TRAILING_WHITESPACE)
-message(STATUS "Using libtool: ${IOS_LIBTOOL}")
+message(VERBOSE "Using libtool: ${IOS_LIBTOOL}")
 # Configure libtool to be used instead of ar + ranlib to build static libraries.
 # This is required on Xcode 7+, but should also work on previous versions of
 # Xcode.
@@ -192,13 +192,14 @@ execute_process(COMMAND uname -r
 # Unless specified, the latest SDK version is used by default.
 set(IOS_DEPLOYMENT_TARGET "${IOS_SDK_VERSION}"
     CACHE STRING "Minimum iOS version to build for." )
-message(STATUS "Building for minimum iOS version: ${IOS_DEPLOYMENT_TARGET}"
+# Toolchain selections are detailed user-facing diagnostics.
+message(VERBOSE "Building for minimum iOS version: ${IOS_DEPLOYMENT_TARGET}"
                " (SDK version: ${IOS_SDK_VERSION})")
 if (NOT IOS_DEPLOYMENT_TARGET VERSION_LESS 11.0)
   # iOS 11+ does not support 32-bit architectures (armv7).
   foreach(ARCH ${IOS_ARCH})
     if (ARCH MATCHES "armv7*")
-      message(STATUS "Removing iOS architecture: ${ARCH} from build as it is "
+      message(VERBOSE "Removing iOS architecture: ${ARCH} from build as it is "
         "not supported by the minimum iOS version to build for: "
         "${IOS_DEPLOYMENT_TARGET} (iOS >= 11 requires 64-bit).")
     else()
@@ -208,7 +209,7 @@ if (NOT IOS_DEPLOYMENT_TARGET VERSION_LESS 11.0)
   set(IOS_ARCH ${VALID_IOS_ARCH_FOR_SDK_VERSION})
 endif()
 
-message(STATUS "Configuring iOS build for platform: ${IOS_PLATFORM}, "
+message(VERBOSE "Configuring iOS build for platform: ${IOS_PLATFORM}, "
   "architecture(s): ${IOS_ARCH}")
 
 # Standard settings.
@@ -257,7 +258,7 @@ endif()
 
 set(CMAKE_C_FLAGS
   "${XCODE_IOS_PLATFORM_VERSION_FLAGS} -fobjc-abi-version=2 -fobjc-arc ${CMAKE_C_FLAGS}")
-# Hidden visibilty is required for C++ on iOS.
+# Hidden visibility is required for C++ on iOS.
 set(CMAKE_CXX_FLAGS
   "${XCODE_IOS_PLATFORM_VERSION_FLAGS} -fvisibility=hidden -fvisibility-inlines-hidden -fobjc-abi-version=2 -fobjc-arc ${CMAKE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3 -fomit-frame-pointer -ffast-math ${CMAKE_CXX_FLAGS_RELEASE}")
@@ -271,7 +272,7 @@ set(CMAKE_CXX_LINK_FLAGS "${XCODE_IOS_PLATFORM_VERSION_FLAGS}  -Wl,-search_paths
 list(APPEND VARS_TO_FORCE_IN_CACHE
   CMAKE_C_FLAGS
   CMAKE_CXX_FLAGS
-  CMAKE_CXX_RELEASE
+  CMAKE_CXX_FLAGS_RELEASE
   CMAKE_C_LINK_FLAGS
   CMAKE_CXX_LINK_FLAGS)
 foreach(VAR_TO_FORCE ${VARS_TO_FORCE_IN_CACHE})
@@ -309,7 +310,7 @@ set(CMAKE_SYSTEM_FRAMEWORK_PATH
   ${CMAKE_OSX_SYSROOT}/Developer/Library/Frameworks)
 
 # Only search the specified iOS SDK, not the remainder of the host filesystem.
-set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
@@ -322,7 +323,6 @@ endmacro(set_xcode_property)
 
 # This macro lets you find executable programs on the host system.
 macro(find_host_package)
-  set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
   set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
   set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
   set(IOS FALSE)
@@ -330,7 +330,6 @@ macro(find_host_package)
   find_package(${ARGN})
 
   set(IOS TRUE)
-  set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
   set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
   set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 endmacro(find_host_package)
